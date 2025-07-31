@@ -1,0 +1,15 @@
+---
+- name: Ensure workstation has the collections it needs.
+  hosts: workstation.lab.example.com
+  become: no
+  gather_facts: no
+  tasks:
+    - name: Install the required collections.
+      become: yes
+      ansible.builtin.yum:
+        name:
+          - ansible-collection-ansible-posix
+          - ansible-collection-community-crypto
+          - ansible-collection-community-general
+        state: present
+...

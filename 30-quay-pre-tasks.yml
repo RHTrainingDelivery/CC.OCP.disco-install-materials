@@ -1,0 +1,216 @@
+---
+# Tasks required as per 10-quay-prereq.adoc.
+- name: Create a CA on workstation.
+  hosts: workstation.lab.example.com
+  become: no
+  gather_subset: min
+  tasks:
+    - name: Create directories.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/newcerts"
+        state: directory
+        recurse: yes
+        mode: 0700
+
+    - name: Create cert index.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/index.txt"
+        mode: 0600
+        content: ""
+
+    - name: Create cert serial tracker.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/serial"
+        mode: 0600
+        content: "0000"
+
+    - name: Ensure openssl.cnf is there and correct.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/ca/openssl.cnf"
+        mode: 0600
+        content: |
+          [ ca ]
+          default_ca      = CA_default
+          
+          [ CA_default ]
+          
+          dir            = ./lab-ca
+          serial         = $dir/serial
+          database       = $dir/index.txt
+          new_certs_dir  = $dir/newcerts
+          
+          certificate    = ./ca-cert.pem
+          private_key    = ./ca-key.pem
+          
+          default_days   = 365
+          default_crl_days= 30
+          default_md     = sha256
+          
+          policy         = policy_any
+          email_in_dn    = no
+          
+          name_opt       = ca_default
+          cert_opt       = ca_default
+          copy_extensions = copy
+          
+          [ policy_any ]
+          countryName            = supplied
+          stateOrProvinceName    = optional
+          organizationName       = optional
+          organizationalUnitName = optional
+          commonName             = supplied
+          emailAddress           = optional
+
+    - name: Check if CA key exists to save time
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-key.pem"
+      register: cakey_file
+
+    - name: Check if CA cert exists to save time
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-cert.pem"
+      register: cacert_file
+
+    - name: Create a new CA private key, if it does not exist yet.
+      community.crypto.openssl_privatekey:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-key.pem"
+        passphrase: verysecret
+        type: RSA
+        cipher: auto
+        size: 8192
+        mode: 0600
+      when: cakey_file.stat.exists == false
+
+    - name: Generate a CSR for the CA cert.
+      community.crypto.openssl_csr:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-csr.pem"
+        privatekey_path: "{{ ansible_facts['user_dir'] }}/ca/ca-key.pem"
+        privatekey_passphrase: verysecret
+        basic_constraints: "CA:TRUE"
+        basic_constraints_critical: yes
+        subject:
+          C: US
+          ST: North Carolina
+          L: Raleigh
+          O: Red Hat
+          OU: RHT
+          CN: Classroom Root CA
+        mode: 0600
+      when: cacert_file.stat.exists == false
+
+    - name: Create a self-signed cert for the CA.
+      community.crypto.x509_certificate:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-cert.pem"
+        csr_path: "{{ ansible_facts['user_dir'] }}/ca/ca-csr.pem"
+        privatekey_path: "{{ ansible_facts['user_dir'] }}/ca/ca-key.pem"
+        privatekey_passphrase: verysecret
+        provider: selfsigned
+        selfsigned_not_after: +510w
+        mode: 0600
+      when: cacert_file.stat.exists == false
+
+    - name: Get rid of the CSR.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/ca/ca-csr.pem"
+        state: absent
+
+    - name: Copy CA cert to ca-trust dir.
+      become: yes
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['user_dir'] }}/ca/ca-cert.pem"
+        dest: "/etc/pki/ca-trust/source/anchors/lab-ca.pem"
+        mode: 0644
+      register: copied
+
+    - name: Have workstation trust the CA.
+      become: yes
+      command: update-ca-trust
+      when: copied.changed
+
+- name: Have utility serve time.
+  hosts: utility.lab.example.com
+  become: no
+  gather_subset: min
+  tasks:
+    - name: Ensure we have the correct chrony.conf
+      become: yes
+      ansible.builtin.copy:
+        dest: /etc/chrony.conf
+        mode: 0644
+        content: |
+          # Use public servers from the pool.ntp.org project.
+          # Please consider joining the pool (http://www.pool.ntp.org/join.html).
+          server 172.25.254.254 iburst
+          
+          # Record the rate at which the system clock gains/losses time.
+          driftfile /var/lib/chrony/drift
+          
+          # Allow the system clock to be stepped in the first three updates
+          # if its offset is larger than 1 second.
+          makestep 1.0 3
+          
+          # Enable kernel synchronization of the real-time clock (RTC).
+          rtcsync
+          
+          # Enable hardware timestamping on all interfaces that support it.
+          #hwtimestamp *
+          
+          # Increase the minimum number of selectable sources required to adjust
+          # the system clock.
+          #minsources 2
+          
+          # Allow NTP client access from local network.
+          #allow 192.168.0.0/16
+          allow all
+          
+          bindcmdaddress 0.0.0.0
+          cmdallow all
+          
+          # Serve time even if not synchronized to a time source.
+          #local stratum 10
+          
+          # Specify file containing keys for NTP authentication.
+          keyfile /etc/chrony.keys
+          
+          # Get TAI-UTC offset and leap seconds from the system tz database.
+          leapsectz right/UTC
+          
+          # Specify directory for log files.
+          logdir /var/log/chrony
+          
+          # Select which information is logged.
+          #log measurements statistics tracking
+      notify:
+        - restart chronyd
+
+    - name: Ensure firewall allows NTP.
+      become: yes
+      ansible.posix.firewalld:
+        immediate: yes
+        permanent: yes
+        zone: "{{ item }}"
+        service: ntp
+        state: enabled
+      loop:
+        - external
+        - public
+
+    - name: Ensure firewall allows cmdport.
+      become: yes
+      ansible.posix.firewalld:
+        immediate: yes
+        permanent: yes
+        zone: "{{ item }}"
+        port: 323/udp
+        state: enabled
+      loop:
+        - external
+        - public
+
+  handlers:
+    - name: restart chronyd
+      become: yes
+      ansible.builtin.service:
+        name: chronyd
+        state: restarted
+...

@@ -1,0 +1,31 @@
+all:
+  hosts:
+    workstation.lab.example.com:
+      ansible_user: student
+      ansible_connection: local
+
+    bastion.lab.example.com:
+      ansible_host: 172.25.250.254
+      ansible_user: devops
+
+  children:
+    openshift:
+      children:
+        masters:
+          hosts:
+            master01.ocp4.example.com:
+            master02.ocp4.example.com:
+            master03.ocp4.example.com:
+        workers:
+          hosts:
+            worker01.ocp4.example.com:
+            worker02.ocp4.example.com:
+
+    infra:
+      hosts:
+        utility.lab.example.com:
+        # power is unreachable with student's key
+        #power.lab.example.com:
+        registry.ocp4.example.com:
+        idm.ocp4.example.com:
+

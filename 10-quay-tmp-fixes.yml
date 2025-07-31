@@ -1,0 +1,126 @@
+---
+# These are the temporary tasks needed on workstation before classroom build is finished.
+- name: Fixes required on utility VM.
+  hosts: utility.lab.example.com
+  become: yes
+  gather_facts: no
+  tasks:
+    # Fixing the DNS first.
+    - name: add ocp4.example.com hosts to /etc/hosts
+      become: yes
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        mode: 0644
+        regex: "{{ item.hostname }}"
+        line: "{{ item.addr }} {{ item.hostname }}"
+        state: present
+      loop:
+        - addr: 192.168.50.40
+          hostname: idm.ocp4.example.com
+        - addr: 192.168.50.50
+          hostname: registry.ocp4.example.com
+        - addr: 192.168.50.10
+          hostname: master01.ocp4.example.com
+        - addr: 192.168.50.11
+          hostname: master02.ocp4.example.com
+        - addr: 192.168.50.12
+          hostname: master03.ocp4.example.com
+        - addr: 192.168.50.13
+          hostname: worker01.ocp4.example.com
+        - addr: 192.168.50.14
+          hostname: worker02.ocp4.example.com
+
+    - name: Ensure dnsmasq is installed.
+      ansible.builtin.yum:
+        name:
+          - dnsmasq
+          - dnsmasq-utils
+        state: present
+
+    - name: Ensure dnsmasq is listening on all interfaces
+      ansible.builtin.lineinfile:
+        path: /etc/dnsmasq.conf
+        mode: 0644
+        regex: "^interface=(.*)$"
+        line: '#interface=\g<1>'
+        backrefs: yes
+
+    - name: Ensure dnsmasq is enabled and running.
+      ansible.builtin.systemd_service:
+        name: dnsmasq
+        enabled: yes
+        state: started
+
+    - name: Ensure DNS is open in the firewall.
+      ansible.posix.firewalld:
+        immediate: yes
+        permanent: yes
+        zone: "{{ item }}"
+        service: dns
+        state: enabled
+      loop:
+        - external
+        - public
+
+    - name: Ensure utility allows forwarding traffic from external to public/trusted zones.
+      ansible.builtin.copy:
+        dest: /etc/firewalld/policies/fwd-stud-to-ocp.xml
+        mode: 0644
+        owner: root
+        group: root
+        content: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <policy target="ACCEPT">
+            <ingress-zone name="external"/>
+            <egress-zone name="public"/>
+            <egress-zone name="trusted"/>
+          </policy>
+      notify:
+        - reload utility firewalld
+  handlers:
+    - name: reload utility firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
+
+- name: Fix registry VM configuration.
+  hosts: registry.ocp4.example.com
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Ensure eth1 interface is in public zone.
+      ansible.builtin.firewalld:
+        zone: public
+        interface: eth1
+        immediate: yes
+        permanent: yes
+        state: enabled
+      notify:
+        - reload registry firewalld
+
+    #- name: Ensure registry is using bastion as the DNS
+    #  community.general.nmcli:
+    #    conn_name: "System eth1"
+    #    dns4: 172.25.250.254
+    #    state: present
+    #  notify:
+    #    - bounce eth1
+
+  handlers:
+    - name: reload registry firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
+
+    #- name: reload connections
+    #  listen: bounce eth1
+    #  ansible.builtin.command: nmcli con reload
+
+    #- name: take eth1 down
+    #  listen: bounce eth1
+    #  ansible.builtin.command: nmcli con down "System eth1"
+
+    #- name: bring eth1 up
+    #  listen: bounce eth1
+    #  ansible.builtin.command: nmcli con up "System eth1"
+...
