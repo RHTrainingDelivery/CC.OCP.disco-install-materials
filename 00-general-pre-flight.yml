@@ -11,5 +11,6 @@
           - ansible-collection-ansible-posix
           - ansible-collection-community-crypto
           - ansible-collection-community-general
+          - ansible-collection-containers-podman
         state: present
 ...

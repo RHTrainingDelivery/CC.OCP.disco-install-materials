@@ -8,6 +8,10 @@ all:
       ansible_host: 172.25.250.254
       ansible_user: devops
 
+  vars:
+    registry_host: registry.redhat.io
+    quay_version: 3.15
+
   children:
     openshift:
       children:

@@ -1,5 +1,5 @@
 ---
-# Tasks required as per 10-quay-prereq.adoc.
+# Tasks required by 00-initial-config.adoc.
 - name: Create a CA on workstation.
   hosts: workstation.lab.example.com
   become: no
