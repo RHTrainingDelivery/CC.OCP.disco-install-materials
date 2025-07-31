@@ -1,0 +1,316 @@
+---
+# Tasks required by 10-quay-deploy.adoc.
+- name: Issue a new Cert for Quay if necessary.
+  hosts: workstation.lab.example.com
+  gather_subset: min
+  tasks:
+    - name: Check if Quay key exists to save time
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ca/quay-key.pem"
+      register: qkey_file
+
+    - name: Check if Quay cert exists to save time
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ca/quay-cert.pem"
+      register: qcert_file
+
+    - name: Create a new private key for Quay, if it does not exist yet.
+      community.crypto.openssl_privatekey:
+        path: "{{ ansible_facts['user_dir'] }}/ca/quay-key.pem"
+        type: RSA
+        size: 4096
+        mode: 0600
+      when: qkey_file.stat.exists == false
+
+    - name: Create a CSR for Quay
+      community.crypto.openssl_csr:
+        path: "{{ ansible_facts['user_dir'] }}/ca/quay-csr.pem"
+        privatekey_path: "{{ ansible_facts['user_dir'] }}/ca/quay-key.pem"
+        subject:
+          C: US
+          ST: North Carolina
+          L: Raleigh
+          O: Red Hat
+          OU: RHT
+          CN: registry.ocp4.example.com
+        use_common_name_for_san: yes
+        mode: 0600
+      when: qcert_file.stat.exists == false
+
+    - name: Issue a certificate for Quay if one isn't there yet.
+      ansible.builtin.command:
+        cmd: openssl ca -config {{ ansible_facts['user_dir'] }}/ca/openssl.cnf -passin pass:verysecret -in {{ ansible_facts['user_dir'] }}/ca/quay-csr.pem -out {{ ansible_facts['user_dir'] }}/ca/quay-cert.pem -batch -notext
+        creates: "{{ ansible_facts['user_dir'] }}/ca/quay-cert.pem"
+
+    - name: Load CA cert and Quay cert.
+      ansible.builtin.set_fact:
+        ca_cert: "{{ lookup('file', ansible_facts['user_dir'] + '/ca/ca-cert.pem') }}"
+        quay_cert: "{{ lookup('file', ansible_facts['user_dir'] + '/ca/lab-ca/newcerts/00.pem') }}"
+
+    - name: Concatenate Quay and CA certs.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/ca/quay-cert.pem"
+        content: |
+          {{ quay_cert }}
+          {{ ca_cert }}
+
+- name: Prepare registry VM to run Quay services.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  tasks:
+    - name: Ensure firewall allows HTTP/HTTPS.
+      become: yes
+      ansible.posix.firewalld:
+        immediate: yes
+        permanent: yes
+        zone: public
+        service: "{{ item }}"
+        state: enabled
+      loop:
+        - http
+        - https
+
+    - name: Ensure unpriv users can open ports from 80 onwards.
+      become: yes
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_unprivileged_port_start
+        value: "80"
+        state: present
+        sysctl_file: /etc/sysctl.d/quay-low-ports.conf
+        reload: yes
+
+    - name: Ensure user quay exists.
+      become: yes
+      ansible.builtin.user:
+        name: quay
+        create_home: yes
+        state: present
+
+    - name: Have the quay user accept student's SSH key.
+      become: yes
+      ansible.posix.authorized_key:
+        key: "{{ lookup('ansible.builtin.file', '/home/student/.ssh/lab_rsa.pub') }}"
+        user: quay
+        state: present
+
+    - name: Ensure user quay will linger.
+      become: yes
+      ansible.builtin.command:
+        cmd: loginctl enable-linger quay
+        creates: /var/lib/systemd/linger/quay
+
+    - name: Ensure data directories are there.
+      become: yes
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: 0770
+        owner: quay
+        group: quay
+        state: directory
+      loop:
+        - /local/quay-pg
+        - /local/quay
+
+    - name: Ensure .docker directory is there
+      become: yes
+      ansible.builtin.file:
+        path: "/home/quay/.docker"
+        mode: 0700
+        owner: quay
+        group: quay
+        state: directory
+
+    # TODO: figure out how to customise this with registry host changes
+    - name: Ensure podman will be able to log into the upstream registry
+      become: yes
+      ansible.builtin.copy:
+        dest: "/home/quay/.docker/config.json"
+        content: |
+          {"auths":{"registry.redhat.io":{"auth":"fHVoYy1wb29sLTlmMDA1Mzc2LTM2YTItNDJhMS1hNTQwLTA0NzNkYzg3MzYzMzpleUpoYkdjaU9pSlNVelV4TWlKOS5leUp6ZFdJaU9pSTVPRGc1WVdFeFl6Qm1PV0kwWmpVM1lqazNObUk1WldFeU16SXdaalUwTUNKOS5zWmQ5VE1RbzBXREc2NUc5Qk1ObmtuYlBjRkIzNmhyRFhkMThfdTNLeHFaczdlOG1hQ19QeEFReGpwdVk0YVM2VERIbkxDNWpGYjRRNXFYVEpWbjJCOGE4cDFuY08tM24ySG5QdDg3NmktVUFDU3lldWtpb3k4aHI0V3d1ZkhReFVYMmxxWFhYdjN6blE3am1URUNBc25rWkNRSFU1dFNpRnNUZHhFZGZkeU42Z20xN3VqY2thZG5NbFBZcTZfU1I2bUtLaUpUdFQ3SFlDWXJBVk5zZ0tfNGFkZ2MtRXBlbEtHbGNERWkzNGhYbzFqbEIzRERyUWkxSUxCV0UwZkdXb1czZy1ZUzFGMFlEXzc0bm1XSU5mUE1jM25UOERaQWl0OEw0VlFPTnZnUE51YnVfTVVGUGhqX29VUjF3VUR0a1BRNktJdm82UWYyRkdwMndLM1B6YnRBRFFzRVZTZDlITzQ3a0RKdGFobk95YTFmRmdqZVk1bFNxLW1vT2RqUldCZ3U2XzNIX25lZExJR1lQRHRBZnp5cGJ1eHZ1cEd1M2hYWnVzeWN0aURtR203SkR5RW5KdjF1RFZmYVduU2EzSV9NcFRSVVcyZWU1RF9CanJleTdlU2I0bEpGcmp1eC1nY2JVaHFsWGJZc2l6azdXWHpvRmtrVFlMdXFDQ1FvS1J0OFdSN1UzTmh3c3Q2ckV3eEFOaWJFTlNzUVB3MGg4X0NDRm5qTHFSTl82cWpTc0tpeWRGT2tHVFliT0taTktaSVVhYkZFTjRhYVRVYmlYTVdPS2Eyak1xLUhwazBMNEowUmtOM2JkQVVqWmtERHE0ZFY1ZVFjdXNIeV9LY29nd1VKSjZ4MDNObnM4b0xBdjRJZ3RKeXlxcmE1YUJHSkxReHNjRXVSNzQwWQ=="}}}
+        mode: 0600
+        owner: quay
+        group: quay
+
+- name: Configure containers and their environment on registry VM.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  remote_user: quay
+  tasks:
+    - name: Create a podman network, if necessary.
+      containers.podman.podman_network:
+        name: quay
+        state: present
+
+    - name: Pull all the images if necessary.
+      containers.podman.podman_image:
+        name: "{{ registry_host }}/{{ item }}"
+        pull: yes
+        state: present
+      loop:
+        - rhel9/postgresql-15:latest
+        - rhel9/redis-7:latest
+        - quay/quay-rhel8:v{{ quay_version }}
+        - quay/clair-rhel8:v{{ quay_version }}
+
+    - name: Ensure PG datadir is owned by the correct user.
+      become_method: containers.podman.podman_unshare
+      become: yes
+      ansible.builtin.file:
+        path: /local/quay-pg
+        state: directory
+        owner: 26
+        mode: 0770
+
+    - name: Start postgres container if necessary.
+      containers.podman.podman_container:
+        name: postgresql
+        image: "{{ registry_host }}/rhel9/postgresql-15:latest"
+        rm: yes
+        detach: yes
+        env:
+          POSTGRESQL_USER: quay
+          POSTGRESQL_PASSWORD: secret
+          POSTGRESQL_DATABASE: quay
+          POSTGRESQL_ADMIN_PASSWORD: verysecret
+        network:
+          - quay
+        volumes:
+          - /local/quay-pg:/var/lib/pgsql/data:Z
+        state: started
+      register: pg_started
+
+    - name: Wait a bit if the PG container was just started.
+      ansible.builtin.pause:
+        prompt: Waiting for PostgreSQL container to start.
+        seconds: 5
+      when: pg_started.changed
+
+    - name: Create the trigram extension if necessary.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: 'psql -d quay -U postgres -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"'
+      register: pg_ext
+      changed_when:
+        - not "already exists" in pg_ext.stderr
+
+    - name: If we started the PG container and created the extension, stop the container now.
+      containers.podman.podman_container:
+        name: postgresql
+        state: stopped
+      when:
+        - pg_started.changed
+        - pg_ext.changed
+
+    - name: Create Quay config directory if necessary.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/config"
+        state: directory
+        mode: 0770
+
+    - name: Publish Quay key on registry.
+      ansible.builtin.copy:
+        src: /home/student/ca/quay-key.pem
+        dest: "{{ ansible_facts['user_dir'] }}/config/ssl.key"
+
+    - name: Publish Quay cert on registry.
+      ansible.builtin.copy:
+        src: /home/student/ca/quay-cert.pem
+        dest: "{{ ansible_facts['user_dir'] }}/config/ssl.cert"
+
+    - name: Publish Quay config file.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/config/config.yaml"
+        content: |
+          BUILDLOGS_REDIS:
+            host: redis
+            password: verysecret
+            port: 6379
+          CREATE_NAMESPACE_ON_PUSH: true
+          DATABASE_SECRET_KEY: 410c87de-8ad8-4f4c-9670-2ec25bc87191
+          DB_URI: postgresql://quay:secret@postgresql:5432/quay
+          DISTRIBUTED_STORAGE_CONFIG:
+            default:
+              - LocalStorage
+              - storage_path: /registry
+          DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
+          DISTRIBUTED_STORAGE_PREFERENCE:
+            - default
+          FEATURE_MAILING: false
+          SECRET_KEY: 7ce58d4d-b6f5-4400-ba6b-77b9f728a115
+          SERVER_HOSTNAME: registry.ocp4.example.com
+          PREFERRED_URL_SCHEME: https
+          SETUP_COMPLETE: true
+          SUPER_USERS:
+            - admin
+          TESTING: false
+          USER_EVENTS_REDIS:
+            host: redis
+            password: verysecret
+            port: 6379
+
+    - name: Ensure Quay data dirs are owned by the correct user.
+      become_method: containers.podman.podman_unshare
+      become: yes
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: 1001
+      loop:
+        - /local/quay
+        - "{{ ansible_facts['user_dir'] }}/config"
+
+    - name: Ensure systemd user dir is there.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user"
+        state: directory
+
+    - name: Deploy service units.
+      ansible.builtin.template:
+        dest: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/{{ item }}"
+        src: "templates/{{ item }}.j2"
+      loop:
+        - quay-pg.service
+        - quay-redis.service
+        - quay.service
+
+    - name: Reload systemd.
+      ansible.builtin.systemd_service:
+        daemon_reload: yes
+        scope: user
+
+    - name: Enable services and start them.
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        scope: user
+        state: started
+        enabled: yes
+      loop:
+        - quay-pg
+        - quay-redis
+        - quay
+
+    # TODO: create a new "admin" user via API:
+    #
+    # 1. send a GET request to registry
+    # 2. extract _csrf_token value
+    # 3. b64dec
+    # 4. POST headers must include:
+    #     Cookie: _csrf_token=ORIG_B64ENC_VALUE
+    #     X-CSRF-Token: B64DEC_VALUE OF _csrf_token ATTRIBUTE
+    #
+    # 5. POST /api/v1/users/
+    # Cookie: _csrf_token=...
+    # X-CSRF-Token: ....
+    # Accept: application/json
+    # Content-Type: application/json
+    # {
+    #   "email": "admin@example.com",
+    #   "username": "admin",
+    #   "password": "redhat123",
+    #   "repeatPassword": "redhat123"
+    # }
+    # 6. Response:
+    # {"anonymous": false, "username": "admin", "avatar": {"name": "admin", "hash": "258d8dc916db8cea2cafb6c3cd0cb0246efe061421dbd83ec3a350428cabda4f", "color": "#98df8a", "kind": "user"}, "can_create_repo": true, "is_me": true, "verified": true, "email": "admin@example.com", "logins": [], "invoice_email": false, "invoice_email_address": null, "preferred_namespace": false, "tag_expiration_s": 1209600.0, "prompts": [], "company": null, "family_name": null, "given_name": null, "location": null, "is_free_account": true, "has_password_set": true, "organizations": [], "super_user": false}
+
+    # TODO: Clair?
+...

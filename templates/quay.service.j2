@@ -1,0 +1,27 @@
+[Unit]
+Description=Quay Container
+Wants=network-online.target,quay-pg.service,quay-redis.service
+After=network-online.target
+
+[Service]
+Restart=on-failure
+TimeoutStopSec=30
+ExecStartPre=/usr/bin/podman rm --ignore -f quay
+ExecStart=/usr/bin/podman run \
+              --conmon-pidfile %t/%n-pid \
+              --cidfile %t/%n-cid \
+              --cgroups=no-conmon \
+              --name=quay -d \
+              --network=quay \
+              -p 80:8080 -p 443:8443 \
+              -v ./config:/conf/stack:Z \
+              -v /local/quay:/registry:Z \
+              {{ registry_host }}/quay/quay-rhel8:v3.15
+ExecStop=/usr/bin/podman stop --ignore --cidfile %t/%n-cid -t 30 && \
+             /bin/rm -f %t/%n-pid %t/%n-cid
+Type=forking
+PIDFile=%t/%n-pid
+KillMode=none
+
+[Install]
+WantedBy=default.target
