@@ -1,0 +1,81 @@
+---
+# Tasks required to disable Clair scanning (required before oc-mirror).
+- name: Disable Clair integration in Quay and stop Clair.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  remote_user: quay
+  tasks:
+    - name: Ensure the podman network is there.
+      containers.podman.podman_network_info:
+        name: quay
+      register: quay_net
+      ignore_errors: yes
+
+    - ansible.builtin.assert:
+        that:
+          - not quay_net.failed
+          - quay_net.networks is defined
+          - quay_net.networks is iterable
+          - quay_net.networks | length == 1
+        fail_msg: "FATAL: Podman network 'quay' does not exist for 'quay' user. Ensure you deployed Quay before running this playbook."
+        success_msg: "OK, network 'quay' found."
+
+    - name: Ensure the quay service is defined.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/quay.service"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: quay_svc_unit
+
+    - ansible.builtin.assert:
+        that:
+          - not quay_svc_unit.failed
+          - quay_svc_unit.stat.exists
+        fail_msg: "FATAL: User service 'quay.service' not found for 'quay' user. Ensure you deployed Quay before running this playbook."
+        success_msg: "OK, service 'quay.service' found."
+
+    - name: Ensure the clair service is defined.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/clair.service"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: clair_svc_unit
+
+    - ansible.builtin.assert:
+        that:
+          - not clair_svc_unit.failed
+          - clair_svc_unit.stat.exists
+        fail_msg: "FATAL: User service 'clair.service' not found for 'quay' user. Ensure you deployed Clair before running this playbook."
+        success_msg: "OK, service 'clair.service' found."
+
+    - name: Patch Quay config if necessary.
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_facts['user_dir'] }}/config/config.yaml"
+        regexp: "FEATURE_SECURITY_SCANNER:"
+        line: "FEATURE_SECURITY_SCANNER: false"
+      notify:
+        - restart quay
+
+    - name: Disable and stop Clair.
+      ansible.builtin.systemd_service:
+        name: clair
+        scope: user
+        state: stopped
+        enabled: no
+
+    - name: Also, kill the container if necessary.
+      containers.podman.podman_container:
+        name: clair
+        state: stopped
+        stop_time: 10
+
+  handlers:
+    - name: restart quay
+      ansible.builtin.systemd_service:
+        name: quay
+        scope: user
+        state: restarted
+...
+
