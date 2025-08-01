@@ -1,6 +1,6 @@
 ---
-# Tasks required by 10-quay-deploy.adoc, part on Clair.
-- name: Prepare registry VM to run Quay services.
+# Tasks required by 15-clair-deploy.adoc.
+- name: Prepare registry VM to run Clair services.
   hosts: registry.ocp4.example.com
   gather_subset: min
   remote_user: quay
