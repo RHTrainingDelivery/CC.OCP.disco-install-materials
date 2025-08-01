@@ -288,29 +288,101 @@
         - quay-pg
         - quay-redis
         - quay
+      register: startup
 
-    # TODO: create a new "admin" user via API:
-    #
-    # 1. send a GET request to registry
-    # 2. extract _csrf_token value
-    # 3. b64dec
-    # 4. POST headers must include:
-    #     Cookie: _csrf_token=ORIG_B64ENC_VALUE
-    #     X-CSRF-Token: B64DEC_VALUE OF _csrf_token ATTRIBUTE
-    #
-    # 5. POST /api/v1/users/
-    # Cookie: _csrf_token=...
-    # X-CSRF-Token: ....
-    # Accept: application/json
-    # Content-Type: application/json
-    # {
-    #   "email": "admin@example.com",
-    #   "username": "admin",
-    #   "password": "redhat123",
-    #   "repeatPassword": "redhat123"
-    # }
-    # 6. Response:
-    # {"anonymous": false, "username": "admin", "avatar": {"name": "admin", "hash": "258d8dc916db8cea2cafb6c3cd0cb0246efe061421dbd83ec3a350428cabda4f", "color": "#98df8a", "kind": "user"}, "can_create_repo": true, "is_me": true, "verified": true, "email": "admin@example.com", "logins": [], "invoice_email": false, "invoice_email_address": null, "preferred_namespace": false, "tag_expiration_s": 1209600.0, "prompts": [], "company": null, "family_name": null, "given_name": null, "location": null, "is_free_account": true, "has_password_set": true, "organizations": [], "super_user": false}
+    - name: Wait a bit if the Quay container was just started.
+      ansible.builtin.pause:
+        prompt: Waiting for Quay container to start.
+        seconds: 30
+      when: startup.results[2].changed
+
+    - name: Check if the admin user exists already.
+      ansible.builtin.uri:
+        method: GET
+        url: https://registry.ocp4.example.com/api/v1/users/foobar
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        validate_certs: no
+        status_code:
+          - 200
+          - 404
+        return_content: yes
+      register: adminuser_is_there
+
+    - name: Create an admin user if not yet there.
+      block:
+        - name: Obtain an encoded CSRF token.
+          ansible.builtin.uri:
+            method: GET
+            url: https://registry.ocp4.example.com/
+            headers:
+              Accept: application/json
+              Content-Type: application/json
+            validate_certs: no
+            return_content: yes
+          ignore_errors: yes
+          register: csrf_token_payload
+
+        - ansible.builtin.assert:
+            that:
+              - csrf_token_payload.cookies['_csrf_token'] is defined
+            fail_msg: "No CSRF token returned by registry. Can not proceed."
+            success_msg: "Good, CSRF token found in response."
+
+        # In case of issues, run with -v and this will show the raw cookie.
+        - ansible.builtin.debug:
+            var: csrf_token_payload.cookies
+            verbosity: 1
+
+        - name: Store the cookie as a new fact. We need it later.
+          ansible.builtin.set_fact:
+            csrf_cookie: "{{ csrf_token_payload.cookies['_csrf_token'] }}"
+
+        # In case of issues, run with -v and this will show the cookie payload.
+        - ansible.builtin.debug:
+            var: csrf_cookie
+            verbosity: 1
+
+        # Must chop out the part of the token before the first dot (the rest is control shit).
+        # Next, and pad it (==) at the end to have 112 characters (no checking done here).
+        # Lastly, convert that from JSON to a dict and obtain the value of the token (_csrf_token).
+        - name: Store CSRF token as a new fact.
+          ansible.builtin.set_fact:
+            csrf_token: "{{ (csrf_token_payload.cookies['_csrf_token'] | ansible.builtin.regex_replace('^(\\w+)\\..*$', '\\1==') | ansible.builtin.b64decode | ansible.builtin.from_json)['_csrf_token'] }}"
+
+        # In case of issues, run with -v and this will show the decoded token.
+        - ansible.builtin.debug:
+            var: csrf_token
+            verbosity: 1
+
+        - name: Send a POST request to registry API to create the admin user.
+          ansible.builtin.uri:
+            method: POST
+            url: https://registry.ocp4.example.com/api/v1/user/
+            headers:
+              Accept: application/json
+              Content-Type: application/json
+              Cookie: _csrf_token={{ csrf_cookie }}
+              X-CSRF-Token: "{{ csrf_token }}"
+            body: |
+              {
+                "username": "admin",
+                "password": "redhat123",
+                "repeatPassword": "redhat123",
+                "email": "admin@example.com"
+              }
+            body_format: json
+            validate_certs: no
+            return_content: yes
+          register: admin_user_response
+
+        # In case of issues, run with -v and this will show the response.
+        - ansible.builtin.debug:
+            var: admin_user_response
+            verbosity: 1
+
+      when: adminuser_is_there.status == 404
 
     # TODO: Clair?
 ...
