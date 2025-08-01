@@ -1,0 +1,180 @@
+---
+# Tasks required by 10-quay-deploy.adoc, part on Clair.
+- name: Prepare registry VM to run Quay services.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  remote_user: quay
+  tasks:
+    - name: Ensure the podman network is there.
+      containers.podman.podman_network_info:
+        name: quay
+      register: quay_net
+      ignore_errors: yes
+
+    - ansible.builtin.assert:
+        that:
+          - not quay_net.failed
+          - quay_net.networks is defined
+          - quay_net.networks is iterable
+          - quay_net.networks | length == 1
+        fail_msg: "FATAL: Podman network 'quay' does not exist for 'quay' user. Ensure you deployed Quay before running this playbook."
+        success_msg: "OK, network 'quay' found."
+
+    - name: Ensure the quay service is defined.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/quay.service"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: quay_svc_unit
+
+    - ansible.builtin.assert:
+        that:
+          - not quay_svc_unit.failed
+          - quay_svc_unit.stat.exists
+        fail_msg: "FATAL: User service 'quay.service' not found for 'quay' user. Ensure you deployed Quay before running this playbook."
+        success_msg: "OK, service 'quay.service' found."
+
+    - name: Ensure the quay-pg service is defined.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/quay-pg.service"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: quay_pg_svc_unit
+
+    - ansible.builtin.assert:
+        that:
+          - not quay_pg_svc_unit.failed
+          - quay_pg_svc_unit.stat.exists
+        fail_msg: "FATAL: User service 'quay-pg.service' not found for 'quay' user. Ensure you deployed Quay before running this playbook."
+        success_msg: "OK, service 'quay-pg.service' found."
+
+    - name: Ensure Quay PostgreSQL is running.
+      ansible.builtin.systemd_service:
+        name: quay-pg
+        scope: user
+        state: started
+
+    - name: Check whether the clair database exists.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: psql -d postgres -U postgres -t -A -c "SELECT datname FROM pg_database WHERE datname = 'clair'"
+      register: pg_clair
+      changed_when: no
+
+    - name: Create the clair database if necessary.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: 'psql -d postgres -U postgres -c "CREATE DATABASE clair OWNER quay"'
+      when:
+        - pg_clair is defined
+        - pg_clair.stdout_lines | length == 0
+
+    - name: Create the uuid-ossp extension if necessary.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: psql -d clair -U postgres -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'
+      register: pg_ext
+      changed_when:
+        - not "already exists" in pg_ext.stderr
+
+    - name: Patch Quay config if necessary.
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_facts['user_dir'] }}/config/config.yaml"
+        insertafter: "{{ item.after }}"
+        regexp: "{{ item.fixre }}"
+        line: "{{ item.value }}"
+      loop:
+        - after: "^FEATURE_MAILING: false$"
+          fixre: "^FEATURE_SECURITY_SCANNER: .*$"
+          value: "FEATURE_SECURITY_SCANNER: true"
+        - after: "^SECRET_KEY: .*$"
+          fixre: "^SECURITY_SCANNER_INDEXING_INTERVAL: .*$"
+          value: "SECURITY_SCANNER_INDEXING_INTERVAL: 30"
+        - after: "^SECURITY_SCANNER_INDEXING_INTERVAL: .*$"
+          fixre: "^SECURITY_SCANNER_V4_PSK: .*$"
+          value: "SECURITY_SCANNER_V4_PSK: NjA1aWhnNWk4MWhqNw=="
+        - after: "^SECURITY_SCANNER_V4_PSK: .*$"
+          fixre: "^SECURITY_SCANNER_V4_ENDPOINT: .*$"
+          value: "SECURITY_SCANNER_V4_ENDPOINT: http://clair:8081"
+      notify:
+        - restart quay
+
+    - name: Create Clair config directory if necessary.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/clair"
+        state: directory
+        mode: 0775
+
+    - name: Publish Clair config if necessary.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/clair/config.yaml"
+        content: |
+          http_listen_addr: :8081
+          introspection_addr: :8088
+          log_level: debug
+          indexer:
+            connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+            scanlock_retry: 10
+            layer_scan_concurrency: 5
+            migrations: true
+          matcher:
+            connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+            max_conn_pool: 100
+            migrations: true
+            indexer_addr: clair-indexer
+          notifier:
+            connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+            delivery_interval: 1m
+            poll_interval: 5m
+            migrations: true
+          auth:
+            psk:
+              key: "NjA1aWhnNWk4MWhqNw=="
+              iss: ["quay"]
+          metrics:
+            name: "prometheus"
+        mode: 0664
+      notify:
+        - restart quay
+        - restart clair
+
+    - name: Ensure same TLS trust will be used for Clair as for workstation.
+      ansible.builtin.copy:
+        src: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+        dest: "{{ ansible_facts['user_dir'] }}/tls-ca-bundle.pem"
+        mode: 0664
+      notify:
+        - restart clair
+
+    - name: Ensure Clair service unit is there.
+      ansible.builtin.template:
+        dest: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/clair.service"
+        src: "templates/clair.service.j2"
+
+    - name: Reload systemd.
+      ansible.builtin.systemd_service:
+        daemon_reload: yes
+        scope: user
+
+    - name: Enable services and start them.
+      ansible.builtin.systemd_service:
+        name: clair
+        scope: user
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: restart quay
+      ansible.builtin.systemd_service:
+        name: quay
+        scope: user
+        state: restarted
+
+    - name: restart clair
+      ansible.builtin.systemd_service:
+        name: clair
+        scope: user
+        state: restarted
+...
