@@ -1,5 +1,5 @@
 ---
-# Tasks required by 10-quay-deploy.adoc.
+# Tasks required by 10-quay-deploy.adoc, part on Quay.
 - name: Issue a new Cert for Quay if necessary.
   hosts: workstation.lab.example.com
   gather_subset: min
@@ -152,6 +152,7 @@
         - quay/quay-rhel8:v{{ quay_version }}
         - quay/clair-rhel8:v{{ quay_version }}
 
+    # TODO: recursive!
     - name: Ensure PG datadir is owned by the correct user.
       become_method: containers.podman.podman_unshare
       become: yes
@@ -211,11 +212,13 @@
       ansible.builtin.copy:
         src: /home/student/ca/quay-key.pem
         dest: "{{ ansible_facts['user_dir'] }}/config/ssl.key"
+        mode: 0440
 
     - name: Publish Quay cert on registry.
       ansible.builtin.copy:
         src: /home/student/ca/quay-cert.pem
         dest: "{{ ansible_facts['user_dir'] }}/config/ssl.cert"
+        mode: 0440
 
     - name: Publish Quay config file.
       ansible.builtin.copy:
@@ -247,7 +250,9 @@
             host: redis
             password: verysecret
             port: 6379
+        mode: 0660
 
+    # TODO: recursive!
     - name: Ensure Quay data dirs are owned by the correct user.
       become_method: containers.podman.podman_unshare
       become: yes
@@ -299,7 +304,7 @@
     - name: Check if the admin user exists already.
       ansible.builtin.uri:
         method: GET
-        url: https://registry.ocp4.example.com/api/v1/users/foobar
+        url: https://registry.ocp4.example.com/api/v1/users/admin
         headers:
           Accept: application/json
           Content-Type: application/json
@@ -383,6 +388,4 @@
             verbosity: 1
 
       when: adminuser_is_there.status == 404
-
-    # TODO: Clair?
 ...
