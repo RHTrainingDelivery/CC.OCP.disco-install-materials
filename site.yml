@@ -1,0 +1,14 @@
+---
+# Do everything all at once, and in correct order.
+- import_playbook: 00-general-pre-flight.yml
+- import_playbook: 10-quay-tmp-fixes.yml
+- import_playbook: 20-general-post-tmp.yml
+
+- import_playbook: 30-quay-pre-tasks.yml
+- import_playbook: 32-quay-deploy.yml
+- import_playbook: 33-clair-deploy.yml
+- import_playbook: 34-clair-disable.yml
+
+#- import_playbook: 40-mirror-prep.yml
+#- import_playbook: 45-oc-mirror.yml
+...
