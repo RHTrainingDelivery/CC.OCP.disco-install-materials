@@ -180,11 +180,14 @@
         state: started
       register: pg_started
 
-    - name: Wait a bit if the PG container was just started.
-      ansible.builtin.pause:
-        prompt: Waiting for PostgreSQL container to start.
-        seconds: 5
+    - name: Wait for the PostgreSQL container to become ready if it was changed in any way.
+      containers.podman.podman_container_info:
+        name: postgresql
       when: pg_started.changed
+      register: pg_info
+      until: pg_info.containers[0].State.Running
+      retries: 12
+      delay: 5
 
     - name: Create the trigram extension if necessary.
       containers.podman.podman_container_exec:
@@ -296,10 +299,22 @@
       register: startup
 
     - name: Wait a bit if the Quay container was just started.
-      ansible.builtin.pause:
-        prompt: Waiting for Quay container to start.
-        seconds: 30
+      ansible.builtin.uri:
+        method: GET
+        url: https://registry.ocp4.example.com/
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        validate_certs: no
+        status_code:
+          - 200
+          - 404
+          - 502
       when: startup.results[2].changed
+      register: startup_wait
+      until: startup_wait.status == 200
+      retries: 30
+      delay: 5
 
     - name: Check if the admin user exists already.
       ansible.builtin.uri:
