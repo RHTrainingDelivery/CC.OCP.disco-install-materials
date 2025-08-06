@@ -1,0 +1,53 @@
+---
+# Create image set config if necessary, start "oc mirror".
+- name: Ensure "oc mirror" has completed. (NON-IDEMPOTENT!)
+  hosts: workstation.lab.example.com
+  gather_subset: min
+  become: no
+  tasks:
+    - name: Ensure working directory exists.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/mirror"
+        state: directory
+        mode: 0755
+        owner: student
+        group: student
+
+    - name: Ensure image set config is correct.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/image-set-config.yaml"
+        mode: 0644
+        owner: student
+        group: student
+        content: |
+          kind: ImageSetConfiguration
+          apiVersion: mirror.openshift.io/v2alpha1
+          mirror:
+            platform:
+              channels:
+              - name: stable-4.18
+                type: ocp
+                minVersion: 4.18.6
+                maxVersion: 4.18.6
+              graph: true
+            operators:
+              - catalog: registry.redhat.io/redhat/redhat-operator-index:v4.18
+                full: false
+                packages:
+                  - name: node-maintenance-operator
+            additionalImages:
+             - name: registry.redhat.io/ubi9/ubi:latest
+
+    - name: Kick off "oc mirror".
+      ansible.builtin.command:
+        cmd: oc mirror --v2 -c {{ ansible_facts['user_dir'] }}/image-set-config.yaml --workspace file://{{ ansible_facts['user_dir'] }}/mirror/ docker://registry.ocp4.example.com
+      register: mirror_output
+
+    - name: Show what happened on stdout.
+      ansible.builtin.debug:
+        var: mirror_output.stdout
+
+    - name: Show what happened on stderr.
+      ansible.builtin.debug:
+        var: mirror_output.stderr
+...

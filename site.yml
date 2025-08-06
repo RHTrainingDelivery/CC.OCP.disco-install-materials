@@ -12,5 +12,5 @@
 - import_playbook: 34-clair-disable.yml
 
 - import_playbook: 40-mirror-prep.yml
-#- import_playbook: 45-oc-mirror.yml
+- import_playbook: 45-oc-mirror.yml
 ...
