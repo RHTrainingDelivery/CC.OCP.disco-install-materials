@@ -62,7 +62,7 @@
         creates: "/etc/bash_completion.d/{{ item.extract_files[0] }}.completion"
       loop: "{{ downloads }}"
       loop_control:
-        label: "{{ item.extract_files[0] }}.completion"
+        label: "{{ item.filename }}"
       when:
         - item.completion is defined
         - item.completion
