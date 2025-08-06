@@ -45,9 +45,9 @@
 
     - name: Show what happened on stdout.
       ansible.builtin.debug:
-        var: mirror_output.stdout
+        var: mirror_output.stdout_lines
 
     - name: Show what happened on stderr.
       ansible.builtin.debug:
-        var: mirror_output.stderr
+        var: mirror_output.stderr_lines
 ...
