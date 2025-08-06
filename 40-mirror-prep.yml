@@ -26,6 +26,8 @@
         owner: student
         group: student
       loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.filename }}"
 
     - name: Extract tools, if necessary.
       become: yes
@@ -39,12 +41,17 @@
         owner: root
         group: root
       loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.extract[0] }}"
 
     - name: Create command completion files, if necessary.
       become: yes
       ansible.builtin.shell:
         cmd: "{{ item.extract[0] }} completion bash > /etc/bash_completion.d/{{ item.extract[0] }}.completion"
         creates: "/etc/bash_completion.d/{{ item.extract[0] }}.completion"
+      loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.extract[0] }}.completion"
 
     - name: Ensure .docker directory exists.
       ansible.builtin.file:
@@ -52,7 +59,7 @@
         state: directory
         mode: 0750
         owner: student
-        group: Student
+        group: student
 
     - name: Create registry auth file, if necessary.
       ansible.builtin.copy:
