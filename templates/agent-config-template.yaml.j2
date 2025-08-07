@@ -1,0 +1,36 @@
+apiVersion: v1alpha1
+kind: AgentConfig
+metadata:
+  name: agent-cluster
+rendezvousIP: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}
+additionalNTPSources:
+  - utility.lab.example.com
+hosts:
+  - hostname: {{ hostvars[install_host]['inventory_hostname_short'] }}
+    rootDeviceHints:
+      deviceName: /dev/vda
+    interfaces:
+      - name: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['interface'] }}
+        macAddress: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['macaddress'] }}
+    networkConfig:
+      interfaces:
+        - name: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['interface'] }}
+          type: ethernet
+          state: up
+          mac-address: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['macaddress'] }}
+          ipv4:
+            enabled: true
+            address:
+              - ip: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}
+                prefix-length: 24
+            dhcp: false
+      dns-resolver:
+        config:
+          server:
+            - 192.168.50.254
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 127.0.0.1
+            next-hop-interface: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['interface'] }}
+            table-id: 254
