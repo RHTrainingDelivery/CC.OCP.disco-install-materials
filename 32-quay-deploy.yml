@@ -195,6 +195,17 @@
       retries: 12
       delay: 5
 
+    - name: Wait for the server inside container to start up.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: 'psql -d quay -U postgres -c "SELECT 1"'
+      when: pg_started.changed
+      changed_when: no
+      register: pg_rdy
+      until: pg_rdy.rc == 0
+      retries: 10
+      delay: 3
+
     - name: Create the trigram extension if necessary.
       containers.podman.podman_container_exec:
         name: postgresql

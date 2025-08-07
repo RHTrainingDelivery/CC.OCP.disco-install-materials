@@ -79,6 +79,7 @@
       changed_when:
         - not "already exists" in pg_ext.stderr
 
+    # TODO: Make loop labels nicer.
     - name: Patch Quay config if necessary.
       ansible.builtin.lineinfile:
         path: "{{ ansible_facts['user_dir'] }}/config/config.yaml"
@@ -99,7 +100,7 @@
           fixre: "^SECURITY_SCANNER_V4_ENDPOINT: .*$"
           value: "SECURITY_SCANNER_V4_ENDPOINT: http://clair:8081"
       notify:
-        - restart quay
+        - restart quay and wait for ready
 
     - name: Create Clair config directory if necessary.
       ansible.builtin.file:
@@ -137,7 +138,7 @@
             name: "prometheus"
         mode: 0664
       notify:
-        - restart quay
+        - restart quay and wait for ready
         - restart clair
 
     - name: Ensure same TLS trust will be used for Clair as for workstation.
@@ -167,10 +168,29 @@
 
   handlers:
     - name: restart quay
+      listen: restart quay and wait for ready
       ansible.builtin.systemd_service:
         name: quay
         scope: user
         state: restarted
+
+    - name: wait for quay to become ready again
+      listen: restart quay and wait for ready
+      ansible.builtin.uri:
+        method: GET
+        url: https://registry.ocp4.example.com/
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        validate_certs: no
+        status_code:
+          - 200
+          - 404
+          - 502
+      register: startup_wait
+      until: startup_wait.status == 200
+      retries: 30
+      delay: 5
 
     - name: restart clair
       ansible.builtin.systemd_service:

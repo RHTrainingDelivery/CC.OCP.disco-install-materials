@@ -5,6 +5,7 @@
   become: no
   gather_subset: min
   tasks:
+    # TODO: Only if necessary.
     - name: Create directories.
       ansible.builtin.file:
         path: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/newcerts"
@@ -12,12 +13,14 @@
         recurse: yes
         mode: 0700
 
+    # TODO: Only if necessary.
     - name: Create cert index.
       ansible.builtin.copy:
         dest: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/index.txt"
         mode: 0600
         content: ""
 
+    # TODO: Only if necessary.
     - name: Create cert serial tracker.
       ansible.builtin.copy:
         dest: "{{ ansible_facts['user_dir'] }}/ca/lab-ca/serial"

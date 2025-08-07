@@ -56,7 +56,7 @@
         regexp: "FEATURE_SECURITY_SCANNER:"
         line: "FEATURE_SECURITY_SCANNER: false"
       notify:
-        - restart quay
+        - restart quay and wait for ready
 
     - name: Disable and stop Clair.
       ansible.builtin.systemd_service:
@@ -73,9 +73,27 @@
 
   handlers:
     - name: restart quay
+      listen: restart quay and wait for ready
       ansible.builtin.systemd_service:
         name: quay
         scope: user
         state: restarted
-...
 
+    - name: wait for quay to become ready again
+      listen: restart quay and wait for ready
+      ansible.builtin.uri:
+        method: GET
+        url: https://registry.ocp4.example.com/
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        validate_certs: no
+        status_code:
+          - 200
+          - 404
+          - 502
+      register: startup_wait
+      until: startup_wait.status == 200
+      retries: 30
+      delay: 5
+...
