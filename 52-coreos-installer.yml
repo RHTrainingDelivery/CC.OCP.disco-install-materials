@@ -158,7 +158,7 @@
       ansible.builtin.command:
         cmd: coreos-installer iso ignition embed -fi ./embed/bootstrap-in-place-for-live-iso.ign -o sno-embedded-cfg.iso {{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
         chdir: "{{ ansible_facts['user_dir'] }}"
-      when: not custom_iso.exists
+      when: not custom_iso.stat.exists
 
 - name: Copy the ISO file to target machine and write it to /dev/sdb
   hosts: master01.ocp4.example.com

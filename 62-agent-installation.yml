@@ -91,7 +91,7 @@
     - name: Ensure agent-config is there.
       ansible.builtin.template:
         src: templates/agent-config-template.yaml.j2
-        dest: "{{ ansible_facts['user_dir'] }}/agent-config.yaml"
+        dest: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
         mode: 0644
         owner: student
         group: student
@@ -123,7 +123,7 @@
 
     - name: The same, but for agent-config.yaml.
       ansible.builtin.copy:
-        src: "{{ ansible_facts['user_dir'] }}/agent-config.yaml"
+        src: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
         remote_src: yes
         dest: "{{ ansible_facts['user_dir'] }}/agent/agent-config.yaml"
         mode: 0644
