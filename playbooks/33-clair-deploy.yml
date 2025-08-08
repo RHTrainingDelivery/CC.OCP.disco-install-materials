@@ -79,6 +79,12 @@
       changed_when:
         - not "already exists" in pg_ext.stderr
 
+    - name: Pull all the images if necessary.
+      containers.podman.podman_image:
+        name: "{{ registry_host }}/quay/clair-rhel8:v{{ quay_version }}"
+        pull: yes
+        state: present
+
     # TODO: Make loop labels nicer.
     - name: Patch Quay config if necessary.
       ansible.builtin.lineinfile:
