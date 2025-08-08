@@ -1,0 +1,31 @@
+[ ca ]
+default_ca      = CA_default
+
+[ CA_default ]
+
+dir            = /home/student/ca/lab-ca
+serial         = $dir/serial
+database       = $dir/index.txt
+new_certs_dir  = $dir/newcerts
+
+certificate    = /home/student/ca/ca-cert.pem
+private_key    = /home/student/ca/ca-key.pem
+
+default_days   = 365
+default_crl_days= 30
+default_md     = sha256
+
+policy         = policy_any
+email_in_dn    = no
+
+name_opt       = ca_default
+cert_opt       = ca_default
+copy_extensions = copy
+
+[ policy_any ]
+countryName            = supplied
+stateOrProvinceName    = optional
+organizationName       = optional
+organizationalUnitName = optional
+commonName             = supplied
+emailAddress           = optional
