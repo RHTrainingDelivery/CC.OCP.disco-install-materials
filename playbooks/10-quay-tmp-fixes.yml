@@ -1,78 +1,10 @@
 ---
 # These are the temporary tasks needed on various machines before classroom build is finished.
-- name: Fixes required on workstation VM.
-  hosts: workstation.lab.example.com
-  become: yes
-  gather_subset: min
-  tasks:
-    - name: Remove Google from resolv.conf
-      ansible.builtin.lineinfile:
-        path: /etc/resolv.conf
-        line: "nameserver 8.8.8.8"
-        state: absent
-
 - name: Fixes required on utility VM.
   hosts: utility.lab.example.com
   become: yes
   gather_subset: min
   tasks:
-# XXX DONE XXX    # Fixing the DNS first.
-# XXX DONE XXX    - name: add ocp4.example.com hosts to /etc/hosts
-# XXX DONE XXX      become: yes
-# XXX DONE XXX      ansible.builtin.lineinfile:
-# XXX DONE XXX        path: /etc/hosts
-# XXX DONE XXX        mode: 0644
-# XXX DONE XXX        regex: "{{ item.hostname }}"
-# XXX DONE XXX        line: "{{ item.addr }} {{ item.hostname }}"
-# XXX DONE XXX        state: present
-# XXX DONE XXX      loop:
-# XXX DONE XXX        - addr: 192.168.50.40
-# XXX DONE XXX          hostname: idm.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.50
-# XXX DONE XXX          hostname: registry.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.10
-# XXX DONE XXX          hostname: master01.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.11
-# XXX DONE XXX          hostname: master02.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.12
-# XXX DONE XXX          hostname: master03.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.13
-# XXX DONE XXX          hostname: worker01.ocp4.example.com
-# XXX DONE XXX        - addr: 192.168.50.14
-# XXX DONE XXX          hostname: worker02.ocp4.example.com
-# XXX DONE XXX
-# XXX DONE XXX    - name: Ensure dnsmasq is installed.
-# XXX DONE XXX      ansible.builtin.yum:
-# XXX DONE XXX        name:
-# XXX DONE XXX          - dnsmasq
-# XXX DONE XXX          - dnsmasq-utils
-# XXX DONE XXX        state: present
-# XXX DONE XXX
-# XXX DONE XXX    - name: Ensure dnsmasq is listening on all interfaces
-# XXX DONE XXX      ansible.builtin.lineinfile:
-# XXX DONE XXX        path: /etc/dnsmasq.conf
-# XXX DONE XXX        mode: 0644
-# XXX DONE XXX        regex: "^interface=(.*)$"
-# XXX DONE XXX        line: '#interface=\g<1>'
-# XXX DONE XXX        backrefs: yes
-# XXX DONE XXX
-# XXX DONE XXX    - name: Ensure dnsmasq is enabled and running.
-# XXX DONE XXX      ansible.builtin.systemd_service:
-# XXX DONE XXX        name: dnsmasq
-# XXX DONE XXX        enabled: yes
-# XXX DONE XXX        state: started
-# XXX DONE XXX
-# XXX DONE XXX    - name: Ensure DNS is open in the firewall.
-# XXX DONE XXX      ansible.posix.firewalld:
-# XXX DONE XXX        immediate: yes
-# XXX DONE XXX        permanent: yes
-# XXX DONE XXX        zone: "{{ item }}"
-# XXX DONE XXX        service: dns
-# XXX DONE XXX        state: enabled
-# XXX DONE XXX      loop:
-# XXX DONE XXX        - external
-# XXX DONE XXX        - public
-
     - name: Ensure idm is in ocp4.example.com zone.
       ansible.builtin.lineinfile:
         path: /var/named/ocp4.example.com.db
@@ -130,45 +62,4 @@
       ansible.builtin.service:
         name: named
         state: restarted
-
-- name: Fix registry VM configuration.
-  hosts: registry.ocp4.example.com
-  become: yes
-  gather_facts: no
-  tasks:
-    - name: Ensure eth1 interface is in public zone.
-      ansible.builtin.firewalld:
-        zone: public
-        interface: eth1
-        immediate: yes
-        permanent: yes
-        state: enabled
-      notify:
-        - reload registry firewalld
-
-# XXX DONE XXX    #- name: Ensure registry is using bastion as the DNS
-# XXX DONE XXX    #  community.general.nmcli:
-# XXX DONE XXX    #    conn_name: "System eth1"
-# XXX DONE XXX    #    dns4: 172.25.250.254
-# XXX DONE XXX    #    state: present
-# XXX DONE XXX    #  notify:
-# XXX DONE XXX    #    - bounce eth1
-
-  handlers:
-    - name: reload registry firewalld
-      ansible.builtin.service:
-        name: firewalld
-        state: reloaded
-
-# XXX DONE XXX    #- name: reload connections
-# XXX DONE XXX    #  listen: bounce eth1
-# XXX DONE XXX    #  ansible.builtin.command: nmcli con reload
-# XXX DONE XXX
-# XXX DONE XXX    #- name: take eth1 down
-# XXX DONE XXX    #  listen: bounce eth1
-# XXX DONE XXX    #  ansible.builtin.command: nmcli con down "System eth1"
-# XXX DONE XXX
-# XXX DONE XXX    #- name: bring eth1 up
-# XXX DONE XXX    #  listen: bounce eth1
-# XXX DONE XXX    #  ansible.builtin.command: nmcli con up "System eth1"
 ...
