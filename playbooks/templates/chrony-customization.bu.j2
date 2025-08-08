@@ -1,0 +1,18 @@
+variant: openshift
+version: 4.18.0
+metadata:
+  name: 99-{{ item }}-chrony
+  labels:
+    machineconfiguration.openshift.io/role: {{ item }}
+storage:
+  files:
+  - path: /etc/chrony.conf
+    mode: 0644
+    overwrite: true
+    contents:
+      inline: |
+        server utility.lab.example.com iburst
+        driftfile /var/lib/chrony/drift
+        makestep 1.0 3
+        rtcsync
+        logdir /var/log/chrony

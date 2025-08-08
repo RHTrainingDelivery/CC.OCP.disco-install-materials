@@ -1,0 +1,38 @@
+apiVersion: v1
+metadata:
+  name: {{ install_type }}
+baseDomain: ocp4.example.com
+{% if install_type == 'iso' %}
+bootstrapInPlace:
+  installationDisk: /dev/sda
+{% endif %}
+compute:
+  - hyperthreading: Enabled
+    name: worker
+    replicas: 0
+controlPlane:
+  hyperthreading: Enabled
+  name: master
+  replicas: 1
+networking:
+  clusterNetwork:
+    - cidr: 10.128.0.0/14
+      hostPrefix: 23
+  networkType: OVNKubernetes
+{% if install_type == 'agent' %}
+  machineNetwork:
+    - cidr: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}/32
+{% endif %}
+  serviceNetwork:
+    - 172.30.0.0/16
+platform:
+  none: {}
+fips: false
+pullSecret: '{{ pull_secret | ansible.builtin.to_json }}'
+sshKey: '{{ public_key }}'
+additionalTrustBundle: |
+{{ lab_ca_cert | ansible.builtin.regex_replace('^', '  ', multiline=True) }}
+imageDigestSources:
+{# There are two ImageDigestMirrorSet resources in idms-oc-mirror.yaml - use a loop. #}
+{% for cs in content_sources %}
+{{ cs.spec.imageDigestMirrors | list | to_yaml }}{% endfor %}

@@ -1,0 +1,15 @@
+---
+- name: Post-fix adjustments and corrections - a good test of state of affairs.
+  hosts: all
+  become: no
+  gather_facts: no
+  tasks:
+    - name: remove annoying MOTDs
+      become: yes
+      ansible.builtin.file:
+        path: "/etc/motd.d/{{ item }}"
+        state: absent
+      loop:
+        - cockpit
+        - insights-client
+...

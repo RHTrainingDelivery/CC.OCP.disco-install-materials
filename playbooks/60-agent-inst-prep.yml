@@ -1,0 +1,15 @@
+---
+# Perform the preparation tasks for agent-based installation.
+# Basically the same as 50-coreos-inst-prep.yml plus a couple of steps.
+- import_playbook: 50-coreos-inst-prep.yml
+
+- name: Additional tasks for agent installation.
+  hosts: workstation.lab.example.com
+  become: yes
+  gather_subset: min
+  tasks:
+    - name: Ensure nmstate is installed.
+      ansible.builtin.yum:
+        name: nmstate
+        state: present
+...

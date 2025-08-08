@@ -1,0 +1,231 @@
+---
+# Download all the tools, set up registry credentials, ssh keys, and a DHCP server on utility.
+- name: Download all the tools we need on workstation, set up registry credentials, and a SSH keypair.
+  hosts: workstation.lab.example.com
+  gather_subset: min
+  become: no
+  vars:
+    downloads:
+      - baseurl: https://mirror.openshift.com/pub/openshift-v4/clients/butane/latest
+        filename: butane-amd64
+        dest_dir: /usr/local/bin
+        deploy: yes
+        extract: no
+        extract_files: []
+        target_filename: butane
+        completion: no
+      - baseurl: https://mirror.openshift.com/pub/openshift-v4/clients/coreos-installer/latest
+        filename: coreos-installer_amd64
+        dest_dir: /usr/local/bin
+        deploy: yes
+        extract: no
+        extract_files: []
+        target_filename: coreos-installer
+        completion: no
+      - baseurl: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.18.6
+        filename: openshift-install-rhel9-amd64.tar.gz
+        dest_dir: /usr/local/bin
+        deploy: yes
+        extract: yes
+        extract_files:
+          - openshift-install-fips
+        target_filename: None
+        completion: yes
+      - baseurl: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable-4.18
+        filename: openshift-client-linux-amd64-rhel9.tar.gz
+        dest_dir: /usr/local/bin
+        deploy: yes
+        extract: yes
+        extract_files:
+          - oc
+          - kubectl
+        target_filename: None
+        completion: yes
+      - baseurl: https://rhcos.mirror.openshift.com/art/storage/prod/streams/4.18-9.4/builds/418.94.202501221327-0/x86_64
+        filename: rhcos-418.94.202501221327-0-live.x86_64.iso
+        deploy: no
+
+  tasks:
+    - name: Download tools, if necessary.
+      ansible.builtin.get_url:
+        url: "{{ item.baseurl }}/{{ item.filename }}"
+        dest: "{{ ansible_facts['user_dir'] }}/Downloads/{{ item.filename }}"
+        mode: 0644
+        owner: student
+        group: student
+      loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.filename }}"
+
+    - name: Extract tools, if necessary.
+      become: yes
+      ansible.builtin.unarchive:
+        src: "{{ ansible_facts['user_dir'] }}/Downloads/{{ item.filename }}"
+        remote_src: yes
+        dest: "{{ item.dest_dir }}"
+        include: "{{ item.extract_files }}"
+        creates: "{{ item.extract_files[0] }}"
+        mode: 0755
+        owner: root
+        group: root
+      loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.filename }}"
+      when:
+        - item.deploy
+        - item.extract
+
+    - name: Install tools, if necessary.
+      become: yes
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['user_dir'] }}/Downloads/{{ item.filename }}"
+        remote_src: yes
+        dest: "{{ item.dest_dir }}/{{ item.target_filename }}"
+        mode: 0755
+        owner: root
+        group: root
+      loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.filename }}"
+      when:
+        - item.deploy
+        - not item.extract
+        - item.target_filename is defined
+        - item.target_filename != None
+
+    - name: Create command completion files, if necessary.
+      become: yes
+      ansible.builtin.shell:
+        cmd: "{{ item.extract_files[0] }} completion bash > /etc/bash_completion.d/{{ item.extract_files[0] }}.completion"
+        creates: "/etc/bash_completion.d/{{ item.extract_files[0] }}.completion"
+      loop: "{{ downloads }}"
+      loop_control:
+        label: "{{ item.filename }}"
+      when:
+        - item.completion is defined
+        - item.completion
+
+    - name: Ensure .docker directory exists.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/.docker"
+        state: directory
+        mode: 0750
+        owner: student
+        group: student
+
+    - name: Ensure mirror registry auth file is on standby.
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['user_dir'] }}/.docker/config.json-mirror"
+        mode: 0640
+        owner: student
+        group: student
+        content: '{"auths":{"registry.ocp4.example.com":{"auth":"YWRtaW46cmVkaGF0MTIz"},"cloud.openshift.com":{"auth":"b3BlbnNoaWZ0LXJlbGVhc2UtZGV2K29jbV9hY2Nlc3NfNGM4ZmZhZTI5ZjUzNGJiZjgyZDhlNWE0ZmZiYjRiY2Y6N0NER083UjM4TE1KTEJTN1EzVkVKQVkyTVVCUkpXQjNWNlUxR1BLVzRaN0tGTVpaSENVVTMwMVdaTzMxTDBPNQ==","email":"glsbugs-devops@redhat.com"},"quay.io":{"auth":"b3BlbnNoaWZ0LXJlbGVhc2UtZGV2K29jbV9hY2Nlc3NfNGM4ZmZhZTI5ZjUzNGJiZjgyZDhlNWE0ZmZiYjRiY2Y6N0NER083UjM4TE1KTEJTN1EzVkVKQVkyTVVCUkpXQjNWNlUxR1BLVzRaN0tGTVpaSENVVTMwMVdaTzMxTDBPNQ==","email":"glsbugs-devops@redhat.com"},"registry.connect.redhat.com":{"auth":"fHVoYy1wb29sLTlmMDA1Mzc2LTM2YTItNDJhMS1hNTQwLTA0NzNkYzg3MzYzMzpleUpoYkdjaU9pSlNVelV4TWlKOS5leUp6ZFdJaU9pSTVPRGc1WVdFeFl6Qm1PV0kwWmpVM1lqazNObUk1WldFeU16SXdaalUwTUNKOS5zWmQ5VE1RbzBXREc2NUc5Qk1ObmtuYlBjRkIzNmhyRFhkMThfdTNLeHFaczdlOG1hQ19QeEFReGpwdVk0YVM2VERIbkxDNWpGYjRRNXFYVEpWbjJCOGE4cDFuY08tM24ySG5QdDg3NmktVUFDU3lldWtpb3k4aHI0V3d1ZkhReFVYMmxxWFhYdjN6blE3am1URUNBc25rWkNRSFU1dFNpRnNUZHhFZGZkeU42Z20xN3VqY2thZG5NbFBZcTZfU1I2bUtLaUpUdFQ3SFlDWXJBVk5zZ0tfNGFkZ2MtRXBlbEtHbGNERWkzNGhYbzFqbEIzRERyUWkxSUxCV0UwZkdXb1czZy1ZUzFGMFlEXzc0bm1XSU5mUE1jM25UOERaQWl0OEw0VlFPTnZnUE51YnVfTVVGUGhqX29VUjF3VUR0a1BRNktJdm82UWYyRkdwMndLM1B6YnRBRFFzRVZTZDlITzQ3a0RKdGFobk95YTFmRmdqZVk1bFNxLW1vT2RqUldCZ3U2XzNIX25lZExJR1lQRHRBZnp5cGJ1eHZ1cEd1M2hYWnVzeWN0aURtR203SkR5RW5KdjF1RFZmYVduU2EzSV9NcFRSVVcyZWU1RF9CanJleTdlU2I0bEpGcmp1eC1nY2JVaHFsWGJZc2l6azdXWHpvRmtrVFlMdXFDQ1FvS1J0OFdSN1UzTmh3c3Q2ckV3eEFOaWJFTlNzUVB3MGg4X0NDRm5qTHFSTl82cWpTc0tpeWRGT2tHVFliT0taTktaSVVhYkZFTjRhYVRVYmlYTVdPS2Eyak1xLUhwazBMNEowUmtOM2JkQVVqWmtERHE0ZFY1ZVFjdXNIeV9LY29nd1VKSjZ4MDNObnM4b0xBdjRJZ3RKeXlxcmE1YUJHSkxReHNjRXVSNzQwWQ==","email":"glsbugs-devops@redhat.com"},"registry.redhat.io":{"auth":"fHVoYy1wb29sLTlmMDA1Mzc2LTM2YTItNDJhMS1hNTQwLTA0NzNkYzg3MzYzMzpleUpoYkdjaU9pSlNVelV4TWlKOS5leUp6ZFdJaU9pSTVPRGc1WVdFeFl6Qm1PV0kwWmpVM1lqazNObUk1WldFeU16SXdaalUwTUNKOS5zWmQ5VE1RbzBXREc2NUc5Qk1ObmtuYlBjRkIzNmhyRFhkMThfdTNLeHFaczdlOG1hQ19QeEFReGpwdVk0YVM2VERIbkxDNWpGYjRRNXFYVEpWbjJCOGE4cDFuY08tM24ySG5QdDg3NmktVUFDU3lldWtpb3k4aHI0V3d1ZkhReFVYMmxxWFhYdjN6blE3am1URUNBc25rWkNRSFU1dFNpRnNUZHhFZGZkeU42Z20xN3VqY2thZG5NbFBZcTZfU1I2bUtLaUpUdFQ3SFlDWXJBVk5zZ0tfNGFkZ2MtRXBlbEtHbGNERWkzNGhYbzFqbEIzRERyUWkxSUxCV0UwZkdXb1czZy1ZUzFGMFlEXzc0bm1XSU5mUE1jM25UOERaQWl0OEw0VlFPTnZnUE51YnVfTVVGUGhqX29VUjF3VUR0a1BRNktJdm82UWYyRkdwMndLM1B6YnRBRFFzRVZTZDlITzQ3a0RKdGFobk95YTFmRmdqZVk1bFNxLW1vT2RqUldCZ3U2XzNIX25lZExJR1lQRHRBZnp5cGJ1eHZ1cEd1M2hYWnVzeWN0aURtR203SkR5RW5KdjF1RFZmYVduU2EzSV9NcFRSVVcyZWU1RF9CanJleTdlU2I0bEpGcmp1eC1nY2JVaHFsWGJZc2l6azdXWHpvRmtrVFlMdXFDQ1FvS1J0OFdSN1UzTmh3c3Q2ckV3eEFOaWJFTlNzUVB3MGg4X0NDRm5qTHFSTl82cWpTc0tpeWRGT2tHVFliT0taTktaSVVhYkZFTjRhYVRVYmlYTVdPS2Eyak1xLUhwazBMNEowUmtOM2JkQVVqWmtERHE0ZFY1ZVFjdXNIeV9LY29nd1VKSjZ4MDNObnM4b0xBdjRJZ3RKeXlxcmE1YUJHSkxReHNjRXVSNzQwWQ==","email":"glsbugs-devops@redhat.com"}}}'
+
+    - name: Ensure installation registry auth file is active.
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        mode: 0640
+        owner: student
+        group: student
+        content: '{"auths":{"registry.ocp4.example.com":{"auth":"YWRtaW46cmVkaGF0MTIz"}}}'
+      loop:
+        - "{{ ansible_facts['user_dir'] }}/.docker/config.json"
+        - "{{ ansible_facts['user_dir'] }}/install-pull-secret"
+
+    - name: Create a SSH keypair, if necessary.
+      community.crypto.openssh_keypair:
+        path: "{{ ansible_facts['user_dir'] }}/.ssh/openshift"
+        type: rsa
+        size: 2048
+        state: present
+
+- name: Ensure DHCP server on utility is configured.
+  hosts: utility.lab.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Ensure there is a DHCP server installed.
+      ansible.builtin.yum:
+        name: dhcp-server
+        state: present
+
+    - name: Fix the environment of the DHCP server a bit by ensuring the unit file specifies it.
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/dhcpd.service
+        mode: 0644
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=DHCPv4 Server Daemon
+          Documentation=man:dhcpd(8) man:dhcpd.conf(5)
+          Wants=network-online.target
+          After=network-online.target
+          After=time-sync.target
+          
+          [Service]
+          Type=notify
+          Environment=DHCPDARGS=eth1
+          EnvironmentFile=-/etc/sysconfig/dhcpd
+          ExecStart=/usr/sbin/dhcpd -f -cf /etc/dhcp/dhcpd.conf -user dhcpd -group dhcpd --no-pid $DHCPDARGS
+          StandardError=null
+          
+          [Install]
+          WantedBy=multi-user.target
+      notify: reload systemd
+
+    - name: Ensure systemd is reloaded if it needs to be at this point.
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure the DHCP config file has the correct content.
+      ansible.builtin.copy:
+        dest: /etc/dhcp/dhcpd.conf
+        mode: 0640
+        owner: root
+        group: root
+        content: |
+          ddns-update-style interim;
+          ignore client-updates;
+          authoritative;
+          allow booting;
+          allow bootp;
+          allow unknown-clients;
+          # Set default and max IP lease time to infinite  with -1 value
+          default-lease-time -1;
+          max-lease-time -1;
+          
+          # BEGIN ANSIBLE MANAGED DHCP CONFIG for ocp4.example.com
+          subnet 192.168.50.0 netmask 255.255.255.0 {
+                  range 192.168.50.100 192.168.50.149;
+                  option routers 192.168.50.254;
+                  option ntp-servers 103.16.182.23,103.16.182.214;
+                  option domain-search "ocp4.example.com";
+                  filename "pxelinux.0";
+                  option domain-name-servers 192.168.50.254;
+                  next-server 192.168.50.254;
+          
+                    host master01.ocp4.example.com { hardware ethernet 52:54:00:00:32:0A; fixed-address 192.168.50.10; option host-name "master01"; }
+                    host master02.ocp4.example.com { hardware ethernet 52:54:00:00:32:0B; fixed-address 192.168.50.11; option host-name "master02"; }
+                    host master03.ocp4.example.com { hardware ethernet 52:54:00:00:32:0C; fixed-address 192.168.50.12; option host-name "master03"; }
+                    host worker01.ocp4.example.com { hardware ethernet 52:54:00:00:32:0D; fixed-address 192.168.50.13; option host-name "worker01"; }
+                    host worker02.ocp4.example.com { hardware ethernet 52:54:00:00:32:0E; fixed-address 192.168.50.14; option host-name "worker02"; }
+          }
+          # END ANSIBLE MANAGED DHCP CONFIG for ocp4.example.com
+      notify: restart dhcpd
+
+    - name: Ensure DHCP server is enabled and running.
+      ansible.builtin.systemd_service:
+        name: dhcpd
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart dhcpd
+      ansible.builtin.systemd_service:
+        name: dhcpd
+        state: restarted
+
+    - name: reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+...

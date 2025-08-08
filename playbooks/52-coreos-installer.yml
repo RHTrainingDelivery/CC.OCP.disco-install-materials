@@ -1,0 +1,192 @@
+---
+# Perform the tasks involved with installing SNO using coreos-installer.
+- name: Prepare the files required for a SNO installation using coreos-installer.
+  hosts: workstation.lab.example.com
+  become: no
+  gather_subset: min
+  tasks:
+    - name: Check the dependency status.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: dependencies
+      loop:
+        - install-pull-secret
+        - .ssh/openshift.pub
+        - ca/ca-cert.pem
+        - mirror/working-dir/cluster-resources/idms-oc-mirror.yaml
+        - Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
+
+    - ansible.builtin.assert:
+        that:
+          - dependencies.results[0].stat.exists
+          - dependencies.results[1].stat.exists
+          - dependencies.results[2].stat.exists
+          - dependencies.results[3].stat.exists
+          - dependencies.results[4].stat.exists
+        fail_msg: |
+          ERROR: Either pull secret, SSH keypair, CA certificate, RHCOS ISO, or mirror artifacts are missing.
+          Ensure all the relevant preceding tasks have been completed:
+            - Quay prerequisites,
+            - Quay deployment,
+            - oc-mirror prerequisites,
+            - oc-mirror execution,
+            - coreos-installer prerequisites
+          Exiting.
+        success_msg: "OK, dependencies exist."
+
+    - name: Check whether someone fiddled with installation before.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/embed/.openshift_install.log"
+      register: install_log
+
+    - name: Warn if installation log was found.
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: Found .openshift_install.log in the cluster working directory. This usually
+                   means there were previous attempts of creating installation artifacts.
+          
+                   If you want to recreate the cluster working directory from scratch, run this
+                   playbook with the variable "recreate_cluster_dir" set to any value like this:
+          
+                    ansible-playbook -e recreate_cluster_dir=yes ./52-coreos-installer.yml
+          
+                   Continuing in 5 seconds unless you interrupt execution.
+        seconds: 5
+      when:
+        - install_log.stat.exists
+        - recreate_cluster_dir is not defined
+
+    - name: Load the dependencies as facts.
+      ansible.builtin.set_fact:
+        pull_secret: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/install-pull-secret') }}"
+        public_key: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/.ssh/openshift.pub') }}"
+        lab_ca_cert: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/ca/ca-cert.pem') }}"
+        content_sources: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/mirror/working-dir/cluster-resources/idms-oc-mirror.yaml')
+                              | ansible.builtin.from_yaml_all }}"
+
+    - name: Set the fact determining installation type (required for templating).
+      ansible.builtin.set_fact:
+        install_type: iso
+
+    - name: Ensure install-config is there.
+      ansible.builtin.template:
+        src: templates/install-config-template.yaml.j2
+        dest: "{{ ansible_facts['user_dir'] }}/install-config-embed.yaml"
+        mode: 0644
+        owner: student
+        group: student
+      register: updated_install_config
+
+    - name: Remove the installation directory if so required.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/embed"
+        state: absent
+      when:
+        - recreate_cluster_dir is defined
+        - recreate_cluster_dir
+
+    - name: Ensure the presence of installation directory.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/embed"
+        state: directory
+        mode: 0755
+
+    - name: Also, ensure that the right install-config.yaml file is in there.
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['user_dir'] }}/install-config-embed.yaml"
+        remote_src: yes
+        dest: "{{ ansible_facts['user_dir'] }}/embed/install-config.yaml"
+        mode: 0644
+      register: published_install_config
+      when:
+        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed
+
+    - name: Create installation manifests if install config was published.
+      ansible.builtin.command:
+        cmd: openshift-install-fips create manifests
+        chdir: "{{ ansible_facts['user_dir'] }}/embed"
+      when: published_install_config.changed
+
+    - name: Render chrony customizations in home directory.
+      ansible.builtin.template:
+        src: templates/chrony-customization.bu.j2
+        dest: "{{ ansible_facts['user_dir'] }}/chrony-{{ item }}.bu"
+        mode: 0644
+        owner: student
+        group: student
+      loop:
+        - master
+        - worker
+
+    - name: Publish chrony customizations in manifests directory.
+      ansible.builtin.command:
+        cmd: butane ./chrony-{{ item }}.bu -o ./embed/openshift/99_chrony_{{ item }}.yaml
+        chdir: "{{ ansible_facts['user_dir'] }}"
+        creates: embed/openshift/99_chrony_{{ item }}.yaml
+      loop:
+        - master
+        - worker
+      when: published_install_config.changed
+
+    - name: Everything should be set by now, so create SNO install config.
+      ansible.builtin.command:
+        cmd: openshift-install-fips create single-node-ignition-config
+        chdir: "{{ ansible_facts['user_dir'] }}/embed"
+      when: published_install_config.changed
+      register: recreated_sno_cfg
+
+    - name: Ensure custom ISO is gone if anything was changed.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/sno-embedded-cfg.iso"
+        state: absent
+      when:
+        - recreated_sno_cfg is defined
+        - recreated_sno_cfg.changed
+
+    - name: Check if custom ISO is there.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/sno-embedded-cfg.iso"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: custom_iso
+
+    - name: Embed install config in the ISO.
+      ansible.builtin.command:
+        cmd: coreos-installer iso ignition embed -fi ./embed/bootstrap-in-place-for-live-iso.ign -o sno-embedded-cfg.iso {{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
+        chdir: "{{ ansible_facts['user_dir'] }}"
+      when: not custom_iso.stat.exists
+
+- name: Copy the ISO file to target machine and write it to /dev/sdb
+  hosts: master01.ocp4.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Copy the ISO file to master01.
+      ansible.builtin.copy:
+        src: /home/student/sno-embedded-cfg.iso
+        dest: /root/sno-embedded-cfg.iso
+        mode: 0644
+      register: copied_iso
+
+    - name: Write the ISO to /dev/sdb if it was changed.
+      ansible.builtin.command:
+        cmd: dd if=/root/sno-embedded-cfg.iso of=/dev/sdb conv=sync bs=4k
+      when: copied_iso.changed
+      register: wrote_iso
+
+    - name: Wipe the filesystem of /dev/sda if ISO was written to /dev/sdb.
+      ansible.builtin.command:
+        cmd: wipefs -af /dev/sda
+      when: wrote_iso.changed
+      register: wiped_fs
+
+    - name: Reboot the machine if filesystem was wiped.
+      ansible.builtin.command:
+        cmd: reboot
+      ignore_errors: yes
+      when: wiped_fs.changed
+...
