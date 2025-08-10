@@ -1,0 +1,28 @@
+[Unit]
+Description=Clair Container
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=on-failure
+TimeoutStopSec=30
+ExecStartPre=/usr/bin/podman rm --ignore -f clair
+ExecStart=/usr/bin/podman run \
+              --conmon-pidfile %t/%n-pid \
+              --cidfile %t/%n-cid \
+              --cgroups=no-conmon \
+              --name=clair -d \
+              --network=quay \
+              -e CLAIR_CONF=/clair/config.yaml \
+              -e CLAIR_MODE=combo \
+              -v ./clair:/clair:Z \
+	      -v ./tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:Z \
+              registry.redhat.io/quay/clair-rhel8:v3.14
+ExecStop=/usr/bin/podman stop --ignore --cidfile %t/%n-cid -t 30 && \
+             /bin/rm -f %t/%n-pid %t/%n-cid
+Type=forking
+PIDFile=%t/%n-pid
+KillMode=none
+
+[Install]
+WantedBy=default.target

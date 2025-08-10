@@ -1,0 +1,24 @@
+http_listen_addr: :8081
+introspection_addr: :8088
+log_level: debug
+indexer:
+  connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+  scanlock_retry: 10
+  layer_scan_concurrency: 5
+  migrations: true
+matcher:
+  connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+  max_conn_pool: 100
+  migrations: true
+  indexer_addr: clair-indexer
+notifier:
+  connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
+  delivery_interval: 1m
+  poll_interval: 5m
+  migrations: true
+auth:
+  psk:
+    key: "NjA1aWhnNWk4MWhqNw=="
+    iss: ["quay"]
+metrics:
+  name: "prometheus"
