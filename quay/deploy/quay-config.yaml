@@ -1,0 +1,26 @@
+BUILDLOGS_REDIS:
+  host: redis
+  password: verysecret
+  port: 6379
+CREATE_NAMESPACE_ON_PUSH: true
+DATABASE_SECRET_KEY: 410c87de-8ad8-4f4c-9670-2ec25bc87191
+DB_URI: postgresql://quay:secret@postgresql:5432/quay
+DISTRIBUTED_STORAGE_CONFIG:
+  default:
+    - LocalStorage
+    - storage_path: /registry
+DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
+DISTRIBUTED_STORAGE_PREFERENCE:
+  - default
+FEATURE_MAILING: false
+SECRET_KEY: 7ce58d4d-b6f5-4400-ba6b-77b9f728a115
+SERVER_HOSTNAME: registry.ocp4.example.com
+PREFERRED_URL_SCHEME: https
+SETUP_COMPLETE: true
+SUPER_USERS:
+  - admin
+TESTING: false
+USER_EVENTS_REDIS:
+  host: redis
+  password: verysecret
+  port: 6379
