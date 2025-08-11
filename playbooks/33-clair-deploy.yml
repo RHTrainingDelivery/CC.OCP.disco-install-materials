@@ -126,6 +126,13 @@
             scanlock_retry: 10
             layer_scan_concurrency: 5
             migrations: true
+            scanner:
+              repo:
+                rhel-repository-scanner:
+                  repo2cpe_mapping_file: /data/repository-to-cpe.json
+              package:
+                rhel_containerscanner:
+                  name2repos_mapping_file: /data/container-name-repos-map.json
           matcher:
             connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
             max_conn_pool: 100
@@ -136,6 +143,10 @@
             delivery_interval: 1m
             poll_interval: 5m
             migrations: true
+          updaters:
+            config:
+              rhel:
+                ignore_unpatched: false
           auth:
             psk:
               key: "NjA1aWhnNWk4MWhqNw=="
