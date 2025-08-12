@@ -7,6 +7,7 @@
 - import_playbook: 20-general-post-tmp.yml
 
 - import_playbook: 30-quay-pre-tasks.yml
+- import_playbook: 31-quay-dependencies.yml
 - import_playbook: 32-quay-deploy.yml
 - import_playbook: 33-clair-deploy.yml
 - import_playbook: 34-clair-disable.yml
