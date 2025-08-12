@@ -120,7 +120,8 @@
         content: |
           http_listen_addr: :8081
           introspection_addr: :8088
-          log_level: debug
+          #log_level: debug # too noisy
+          log_level: info
           indexer:
             connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
             scanlock_retry: 10
