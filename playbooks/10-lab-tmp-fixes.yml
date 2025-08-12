@@ -5,26 +5,27 @@
   become: yes
   gather_subset: min
   tasks:
-    - name: Ensure idm is in ocp4.example.com zone.
-      ansible.builtin.lineinfile:
-        path: /var/named/ocp4.example.com.db
-        regex: '^idm[[:space:]]'
-        insertafter: '.*IN NS dns\.ocp4\.example\.com\.$'
-        line: 'idm      IN A 192.168.50.40'
-      notify:
-        - fix forward zone serial
-        - restart named
+# XXX DONE XXX    - name: Ensure idm is in ocp4.example.com zone.
+# XXX DONE XXX      ansible.builtin.lineinfile:
+# XXX DONE XXX        path: /var/named/ocp4.example.com.db
+# XXX DONE XXX        regex: '^idm[[:space:]]'
+# XXX DONE XXX        insertafter: '.*IN NS dns\.ocp4\.example\.com\.$'
+# XXX DONE XXX        line: 'idm      IN A 192.168.50.40'
+# XXX DONE XXX      notify:
+# XXX DONE XXX        - fix forward zone serial
+# XXX DONE XXX        - restart named
 
-    - name: Ensure idm is in ocp4.example.com reverse zone.
-      ansible.builtin.lineinfile:
-        path: /var/named/ocp4.example.com.reverse.db
-        regex: '^40[[:space:]]'
-        insertafter: '.*IN NS dns\.ocp4\.example\.com\.$'
-        line: '40  IN PTR idm.ocp4.example.com.'
-      notify:
-        - fix reverse zone serial
-        - restart named
+# XXX DONE XXX    - name: Ensure idm is in ocp4.example.com reverse zone.
+# XXX DONE XXX      ansible.builtin.lineinfile:
+# XXX DONE XXX        path: /var/named/ocp4.example.com.reverse.db
+# XXX DONE XXX        regex: '^40[[:space:]]'
+# XXX DONE XXX        insertafter: '.*IN NS dns\.ocp4\.example\.com\.$'
+# XXX DONE XXX        line: '40  IN PTR idm.ocp4.example.com.'
+# XXX DONE XXX      notify:
+# XXX DONE XXX        - fix reverse zone serial
+# XXX DONE XXX        - restart named
 
+    # XXX DONE???
     - name: Ensure utility allows forwarding traffic from external to public/trusted zones.
       ansible.builtin.copy:
         dest: /etc/firewalld/policies/fwd-stud-to-ocp.xml
