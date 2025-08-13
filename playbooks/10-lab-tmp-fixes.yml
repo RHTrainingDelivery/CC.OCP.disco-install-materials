@@ -1,10 +1,13 @@
 ---
 # These are the temporary tasks needed on various machines before classroom build is finished.
-- name: Fixes required on utility VM.
-  hosts: utility.lab.example.com
-  become: yes
-  gather_subset: min
-  tasks:
+#
+# TODO: Copy clair-updates.gz to registry.ocp4.example.com:/local
+#
+# XXX DONE XXX- name: Fixes required on utility VM.
+# XXX DONE XXX  hosts: utility.lab.example.com
+# XXX DONE XXX  become: yes
+# XXX DONE XXX  gather_subset: min
+# XXX DONE XXX  tasks:
 # XXX DONE XXX    - name: Ensure idm is in ocp4.example.com zone.
 # XXX DONE XXX      ansible.builtin.lineinfile:
 # XXX DONE XXX        path: /var/named/ocp4.example.com.db
@@ -14,7 +17,7 @@
 # XXX DONE XXX      notify:
 # XXX DONE XXX        - fix forward zone serial
 # XXX DONE XXX        - restart named
-
+# XXX DONE XXX
 # XXX DONE XXX    - name: Ensure idm is in ocp4.example.com reverse zone.
 # XXX DONE XXX      ansible.builtin.lineinfile:
 # XXX DONE XXX        path: /var/named/ocp4.example.com.reverse.db
@@ -24,43 +27,42 @@
 # XXX DONE XXX      notify:
 # XXX DONE XXX        - fix reverse zone serial
 # XXX DONE XXX        - restart named
-
-    # XXX DONE???
-    - name: Ensure utility allows forwarding traffic from external to public/trusted zones.
-      ansible.builtin.copy:
-        dest: /etc/firewalld/policies/fwd-stud-to-ocp.xml
-        mode: 0644
-        owner: root
-        group: root
-        content: |
-          <?xml version="1.0" encoding="utf-8"?>
-          <policy target="ACCEPT">
-            <ingress-zone name="external"/>
-            <egress-zone name="public"/>
-            <egress-zone name="trusted"/>
-          </policy>
-      notify:
-        - reload utility firewalld
-  handlers:
-    - name: reload utility firewalld
-      ansible.builtin.service:
-        name: firewalld
-        state: reloaded
-
-    - name: fix forward zone serial
-      ansible.builtin.lineinfile:
-        path: /var/named/ocp4.example.com.db
-        regex: '.*; serial$'
-        line: "                {{ ansible_facts['date_time']['year'] }}{{ ansible_facts['date_time']['month'] }}{{ ansible_facts['date_time']['day'] }}00"
-
-    - name: fix reverse zone serial
-      ansible.builtin.lineinfile:
-        path: /var/named/ocp4.example.com.reverse.db
-        regex: '.*; serial$'
-        line: "                {{ ansible_facts['date_time']['year'] }}{{ ansible_facts['date_time']['month'] }}{{ ansible_facts['date_time']['day'] }}00"
-
-    - name: restart named
-      ansible.builtin.service:
-        name: named
-        state: restarted
+# XXX DONE XXX
+# XXX DONE XXX    - name: Ensure utility allows forwarding traffic from external to public/trusted zones.
+# XXX DONE XXX      ansible.builtin.copy:
+# XXX DONE XXX        dest: /etc/firewalld/policies/fwd-stud-to-ocp.xml
+# XXX DONE XXX        mode: 0644
+# XXX DONE XXX        owner: root
+# XXX DONE XXX        group: root
+# XXX DONE XXX        content: |
+# XXX DONE XXX          <?xml version="1.0" encoding="utf-8"?>
+# XXX DONE XXX          <policy target="ACCEPT">
+# XXX DONE XXX            <ingress-zone name="external"/>
+# XXX DONE XXX            <egress-zone name="public"/>
+# XXX DONE XXX            <egress-zone name="trusted"/>
+# XXX DONE XXX          </policy>
+# XXX DONE XXX      notify:
+# XXX DONE XXX        - reload utility firewalld
+# XXX DONE XXX  handlers:
+# XXX DONE XXX    - name: reload utility firewalld
+# XXX DONE XXX      ansible.builtin.service:
+# XXX DONE XXX        name: firewalld
+# XXX DONE XXX        state: reloaded
+# XXX DONE XXX
+# XXX DONE XXX    - name: fix forward zone serial
+# XXX DONE XXX      ansible.builtin.lineinfile:
+# XXX DONE XXX        path: /var/named/ocp4.example.com.db
+# XXX DONE XXX        regex: '.*; serial$'
+# XXX DONE XXX        line: "                {{ ansible_facts['date_time']['year'] }}{{ ansible_facts['date_time']['month'] }}{{ ansible_facts['date_time']['day'] }}00"
+# XXX DONE XXX
+# XXX DONE XXX    - name: fix reverse zone serial
+# XXX DONE XXX      ansible.builtin.lineinfile:
+# XXX DONE XXX        path: /var/named/ocp4.example.com.reverse.db
+# XXX DONE XXX        regex: '.*; serial$'
+# XXX DONE XXX        line: "                {{ ansible_facts['date_time']['year'] }}{{ ansible_facts['date_time']['month'] }}{{ ansible_facts['date_time']['day'] }}00"
+# XXX DONE XXX
+# XXX DONE XXX    - name: restart named
+# XXX DONE XXX      ansible.builtin.service:
+# XXX DONE XXX        name: named
+# XXX DONE XXX        state: restarted
 ...
