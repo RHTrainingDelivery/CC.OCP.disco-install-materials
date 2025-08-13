@@ -1,5 +1,6 @@
 ---
 # Tasks required by 15-clair-deploy.adoc.
+# TODO: import vuln updates somehow
 - name: Prepare registry VM to run Clair services.
   hosts: registry.ocp4.example.com
   gather_subset: min
@@ -134,11 +135,13 @@
               package:
                 rhel_containerscanner:
                   name2repos_mapping_file: /data/container-name-repos-map.json
+            airgap: true
           matcher:
             connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
             max_conn_pool: 100
             migrations: true
             indexer_addr: clair-indexer
+            disable_updaters: true
           notifier:
             connstring: host=postgresql port=5432 dbname=clair user=quay password=secret sslmode=disable
             delivery_interval: 1m
