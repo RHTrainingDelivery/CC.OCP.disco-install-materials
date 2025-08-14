@@ -1,5 +1,6 @@
 ---
 # Create image set config if necessary, start "oc mirror".
+# TODO: restore registry backup somehow - if that's really necessary?
 - name: Ensure "oc mirror" has completed. (NON-IDEMPOTENT!)
   hosts: workstation.lab.example.com
   gather_subset: min
@@ -35,8 +36,13 @@
                 full: false
                 packages:
                   - name: node-maintenance-operator
+              - catalog: registry.redhat.io/redhat/certified-operator-index:v4.18
+                full: false
+                packages:
+                  - name: crunchy-postgres-operator
             additionalImages:
              - name: registry.redhat.io/ubi9/ubi:latest
+             - name: registry.redhat.io/ubi9/toolbox:latest
 
     - name: Kick off "oc mirror".
       ansible.builtin.command:
