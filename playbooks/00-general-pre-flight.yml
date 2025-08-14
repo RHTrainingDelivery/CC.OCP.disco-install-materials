@@ -4,7 +4,7 @@
   become: no
   gather_facts: no
   tasks:
-    - name: Install the required collections.
+    - name: Install the required collections (and other packages).
       become: yes
       ansible.builtin.yum:
         name:
@@ -12,13 +12,13 @@
           - ansible-collection-community-crypto
           - ansible-collection-community-general
           - ansible-collection-containers-podman
+          - fuse-sshfs
         state: present
 
-    - name: Remove Google from resolv.conf
+    - name: Remove Google from resolv.conf.
       become: yes
       ansible.builtin.lineinfile:
         path: /etc/resolv.conf
         line: "nameserver 8.8.8.8"
         state: absent
-
 ...
