@@ -3,7 +3,7 @@
 #- import_playbook: 00-general-pre-flight.yml
 
 # Do everything else all at once, and in correct order.
-- import_playbook: 10-lab-tmp-fixes.yml
+#- import_playbook: 10-lab-tmp-fixes.yml <-- nothing to do here at the moment
 - import_playbook: 20-general-post-tmp.yml
 
 - import_playbook: 30-quay-pre-tasks.yml
