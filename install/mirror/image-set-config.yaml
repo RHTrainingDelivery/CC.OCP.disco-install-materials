@@ -13,10 +13,10 @@ mirror:
       full: false
       packages:
         - name: node-maintenance-operator
-    - catalog: registry.redhat.io/redhat/community-operator-index:v4.18
+    - catalog: registry.redhat.io/redhat/certified-operator-index:v4.18
       full: false
       packages:
-        - name: node-discovery-operator
+        - name: crunchy-postgres-operator
   additionalImages:
    - name: registry.access.redhat.com/ubi9/ubi:latest
    - name: registry.access.redhat.com/ubi9/toolbox:latest
