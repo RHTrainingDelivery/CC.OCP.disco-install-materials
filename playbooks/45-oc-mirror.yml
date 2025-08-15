@@ -41,6 +41,7 @@
         - name: Ensure quay container is stopped.
           containers.podman.podman_container:
             name: quay
+            image: "{{ registry_host }}/quay/quay-rhel8:v{{ quay_version }}"
             state: stopped
             timeout: 60
 

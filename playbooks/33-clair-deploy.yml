@@ -214,6 +214,7 @@
         - name: Ensure clair container is stopped.
           containers.podman.podman_container:
             name: clair
+            image: "{{ registry_host }}/quay/clair-rhel8:v{{ quay_version }}"
             state: stopped
 
         - name: Create a temporary pgpass file
