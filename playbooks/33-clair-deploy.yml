@@ -254,8 +254,8 @@
             state: started
           register: clair_import
           ignore_errors: yes
-          failed_when: "FATAL" in clair_import.stderr_lines
-          # TODO: probably use a regex here
+          failed_when:
+            - (clair_import.stderr | regex_search('FATAL')) is defined
 
         - debug: var=clair_import
 
