@@ -234,7 +234,7 @@
             state: file 
             owner: 26
 
-        - name: Run pg_restore in a clair_import container.
+        - name: Run pg_restore in a clair_import container (should take about 5-10 min).
           containers.podman.podman_container:
             name: clair_import
             image: "{{ registry_host }}/rhel9/postgresql-15:latest"

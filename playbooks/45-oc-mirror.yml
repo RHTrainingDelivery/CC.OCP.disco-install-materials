@@ -69,7 +69,7 @@
             state: file
             owner: 26
 
-        - name: Run pg_restore in a quay_import container.
+        - name: Run pg_restore in a quay_import container (takes a couple of seconds).
           containers.podman.podman_container:
             name: quay_import
             image: "{{ registry_host }}/rhel9/postgresql-15:latest"
@@ -108,7 +108,7 @@
             path: /tmp/pgpass
             state: absent
 
-        - name: Remove the current Quay data directory.
+        - name: Remove the current Quay data directories.
           remote_user: lab
           become: yes
           ansible.builtin.file:
@@ -118,7 +118,7 @@
             - sha256
             - uploads
 
-        - name: Extract the latest Quay data directory backup.
+        - name: Extract the latest Quay data directory backup (takes around half an hour).
           remote_user: lab
           become: yes
           ansible.builtin.unarchive:
@@ -152,7 +152,7 @@
       when:
         - quay_nmft < 200
 
-- name: Ensure "oc mirror" has completed. (NON-IDEMPOTENT!)
+- name: Ensure "oc mirror" has completed (non-idempotent, but only downloads 5-10 images if anything).
   hosts: workstation.lab.example.com
   gather_subset: min
   become: no
