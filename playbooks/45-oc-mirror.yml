@@ -131,10 +131,8 @@
         - name: Extract the latest Quay data directory backup (takes around half an hour).
           remote_user: lab
           become: yes
-          ansible.builtin.unarchive:
-            src: /local/backups/quay-data.tar.bz2
-            dest: /local
-            remote_src: yes
+          ansible.builtin.command:
+            cmd: tar xpf /local/backups/quay-data.tar.bz2 -C /local
 
         - name: Ensure quay service is started after this.
           ansible.builtin.systemd_service:
