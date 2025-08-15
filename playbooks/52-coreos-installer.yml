@@ -33,7 +33,7 @@
             - Quay deployment,
             - oc-mirror prerequisites,
             - oc-mirror execution,
-            - coreos-installer prerequisites
+            - OpenShift installation prerequisites
           Exiting.
         success_msg: "OK, dependencies exist."
 
