@@ -257,6 +257,7 @@
           ignore_errors: yes
           failed_when:
             - (clair_import.stderr | regex_search('FATAL')) is defined
+            - (clair_import.stderr | regex_search('FATAL')) != ""
 
         - debug: var=clair_import
 

@@ -25,6 +25,8 @@
       ignore_errors: yes
       register: quay_mft
 
+    - debug: var=quay_mft
+
     - name: Remember the number of image manifests in quay.
       ansible.builtin.set_fact:
         quay_nmft: "{{ quay_mft.stdout_lines[0] | default(0) | trim | int }}"
@@ -50,7 +52,8 @@
             name: postgresql
             command: psql -d postgres -U postgres -t -c 'CREATE DATABASE quay OWNER quay'
           when:
-            - (quay_mft.stderr | ansible.builtin.regex_search('FATAL:  database "quay" does not exist')) is defined
+            - (quay_mft.stderr | ansible.builtin.regex_search('FATAL:  database .* does not exist')) is defined
+            - (quay_mft.stderr | ansible.builtin.regex_search('FATAL:  database .* does not exist')) != ""
 
         - name: Create a temporary pgpass file
           ansible.builtin.copy:
@@ -92,6 +95,7 @@
           ignore_errors: yes
           failed_when:
             - (quay_import.stderr | regex_search('FATAL')) is defined
+            - (quay_import.stderr | regex_search('FATAL')) != ""
 
         - debug: var=quay_import
 
