@@ -1,6 +1,156 @@
 ---
 # Create image set config if necessary, start "oc mirror".
-# TODO: restore registry backup somehow - if that's really necessary?
+- name: Ensure backup file is owned by quay user.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Ensure database backup file is owned by quay user.
+      ansible.builtin.file:
+        path: /local/backups/quay-db.backup
+        owner: quay
+        group: quay
+        mode: 0644
+
+- name: Ensure registry has a default (pre-mirrored) set of images.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  become: no
+  remote_user: quay
+  tasks:
+    - name: Verify that the image manifests exist.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: psql -d quay -U postgres -t -c 'SELECT COUNT(id) FROM manifest'
+      ignore_errors: yes
+      register: quay_mft
+
+    - name: Remember the number of image manifests in quay.
+      ansible.builtin.set_fact:
+        quay_nmft: "{{ quay_mft.stdout_lines[0] | default(0) | trim | int }}"
+
+    - name: Import quay backup if manifests seem to be missing.
+      block:
+
+        - name: Ensure quay service is stopped.
+          ansible.builtin.systemd_service:
+            name: quay
+            scope: user
+            state: stopped
+
+        - name: Ensure quay container is stopped.
+          containers.podman.podman_container:
+            name: quay
+            state: stopped
+            timeout: 60
+
+        - name: Create the database if necessary.
+          containers.podman.podman_container_exec:
+            name: postgresql
+            command: psql -d postgres -U postgres -t -c 'CREATE DATABASE quay OWNER quay'
+          when:
+            - (quay_mft.stderr | ansible.builtin.regex_search('FATAL:  database "quay" does not exist')) is defined
+
+        - name: Create a temporary pgpass file
+          ansible.builtin.copy:
+            dest: /tmp/pgpass
+            owner: quay
+            group: quay
+            mode: 0600
+            content: |
+              postgresql:5432:quay:postgres:verysecret
+
+        - name: Ensure the pgpass file is owned by postgres user of the container.
+          become_method: containers.podman.podman_unshare
+          become: yes
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: file
+            owner: 26
+
+        - name: Run pg_restore in a quay_import container.
+          containers.podman.podman_container:
+            name: quay_import
+            image: "{{ registry_host }}/rhel9/postgresql-15:latest"
+            rm: yes
+            detach: no
+            network:
+              - quay
+            volumes:
+              - /local/backups/quay-db.backup:/quay-db.backup:Z
+              - /tmp/pgpass:/var/lib/pgsql/.pgpass:Z
+            command:
+              - pg_restore
+              - -dquay
+              - -Upostgres
+              - -hpostgresql
+              - -c
+              - /quay-db.backup
+            state: started
+          register: quay_import
+          ignore_errors: yes
+          failed_when:
+            - (quay_import.stderr | regex_search('FATAL')) is defined
+
+        - debug: var=quay_import
+
+        - name: Restore the ownership of the file.
+          become_method: containers.podman.podman_unshare
+          become: yes
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: file 
+            owner: 0
+
+        - name: Remove the pgpass file
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: absent
+
+        - name: Remove the current Quay data directory.
+          remote_user: lab
+          become: yes
+          ansible.builtin.file:
+            path: /local/quay/{{ item }}
+            state: absent
+          loop:
+            - sha256
+            - uploads
+
+        - name: Extract the latest Quay data directory backup.
+          remote_user: lab
+          become: yes
+          ansible.builtin.unarchive:
+            src: /local/backups/quay-data.tar.bz2
+            dest: /local
+            remote_src: yes
+
+        - name: Ensure quay service is started after this.
+          ansible.builtin.systemd_service:
+            name: quay
+            scope: user
+            state: started
+
+        - name: wait for quay to become ready again
+          ansible.builtin.uri:
+            method: GET
+            url: https://registry.ocp4.example.com/
+            headers:
+              Accept: application/json
+              Content-Type: application/json
+            validate_certs: no
+            status_code:
+              - 200
+              - 404
+              - 502
+          register: startup_wait
+          until: startup_wait.status == 200
+          retries: 30
+          delay: 5
+
+      when:
+        - quay_nmft < 200
+
 - name: Ensure "oc mirror" has completed. (NON-IDEMPOTENT!)
   hosts: workstation.lab.example.com
   gather_subset: min
