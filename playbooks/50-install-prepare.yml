@@ -1,5 +1,8 @@
 ---
-# Download all the tools, set up registry credentials, ssh keys, and a DHCP server on utility.
+# Download all the tools, set up registry credentials, ssh keys, and ensure the health of a DHCP and a DNS server on utility.
+#
+# XXX: If someone has gone beyond this point in the course and runs this playbook, it will revert the changes back to the original.
+#
 - name: Download all the tools we need on workstation, set up registry credentials, and a SSH keypair.
   hosts: workstation.lab.example.com
   gather_subset: min
@@ -219,10 +222,166 @@
         enabled: yes
         state: started
 
+    - name: Ensure the Bind config file has the correct content.
+      ansible.builtin.copy:
+        dest: /etc/named.conf
+        mode: 0640
+        owner: root
+        group: root
+        content: |
+          //
+          // named.conf
+          //
+          // Provided by Red Hat bind package to configure the ISC BIND named(8) DNS
+          // server as a caching only nameserver (as a localhost DNS resolver only).
+          //
+          // See /usr/share/doc/bind*/sample/ for example named configuration files.
+          //
+          
+          options {
+          #listen-on port 53 { 127.0.0.1; };
+          #listen-on-v6 port 53 { ::1; };
+                directory       "/var/named";
+                dump-file       "/var/named/data/cache_dump.db";
+                statistics-file "/var/named/data/named_stats.txt";
+                memstatistics-file "/var/named/data/named_mem_stats.txt";
+                secroots-file   "/var/named/data/named.secroots";
+                recursing-file  "/var/named/data/named.recursing";
+                         allow-query { localhost; 192.168.50.0/24; 172.25.250.254; };
+          
+                /*
+                 - If you are building an AUTHORITATIVE DNS server, do NOT enable recursion.
+                 - If you are building a RECURSIVE (caching) DNS server, you need to enable
+                   recursion.
+                 - If your recursive DNS server has a public IP address, you MUST enable access
+                   control to limit queries to your legitimate users. Failing to do so will
+                   cause your server to become part of large scale DNS amplification
+                   attacks. Implementing BCP38 within your network would greatly
+                   reduce such attack surface
+                */
+                recursion yes;
+          
+          dnssec-enable no;
+          dnssec-validation no;
+          
+                managed-keys-directory "/var/named/dynamic";
+                geoip-directory "/usr/share/GeoIP";
+          
+                pid-file "/run/named/named.pid";
+                session-keyfile "/run/named/session.key";
+          # BEGIN ANSIBLE MANAGED FORWARDERS
+          forwarders {
+            172.25.250.254;
+          };
+          # END ANSIBLE MANAGED FORWARDERS
+          
+                /* https://fedoraproject.org/wiki/Changes/CryptoPolicy */
+                include "/etc/crypto-policies/back-ends/bind.config";
+          };
+          
+          logging {
+                  channel default_debug {
+                          file "data/named.run";
+                          severity dynamic;
+                  };
+          };
+          
+          zone "." IN {
+                type hint;
+                file "named.ca";
+          };
+          
+          include "/etc/named.rfc1912.zones";
+          include "/etc/named.root.key";
+          
+          # BEGIN ANSIBLE MANAGED DNS ZONE for ocp4.example.com
+          zone "ocp4.example.com" {
+              type master;
+              file "ocp4.example.com.db";
+              allow-update { none; };
+          };
+          # END ANSIBLE MANAGED DNS ZONE for ocp4.example.com
+          # BEGIN ANSIBLE MANAGED DNS REVERSE ZONE for ocp4.example.com
+          zone "50.168.192.in-addr.arpa" IN {
+              type master;
+              file "ocp4.example.com.reverse.db";
+              allow-update { none; };
+          };
+      notify: restart named
+
+    - name: Ensure the forward lookup zone file has the correct content.
+      ansible.builtin.copy:
+        dest: /var/named/ocp4.example.com.db
+        mode: 0644
+        owner: root
+        group: root
+        content: |
+          $TTL  1D
+          @     IN  SOA dns.ocp4.example.com. root.example.com. (
+                          2019022400 ; serial
+                          3h         ; refresh
+                          15         ; retry
+                          1w         ; expire
+                          3h         ; minimum
+                        )
+                   IN NS dns.ocp4.example.com.
+          dns      IN A 192.168.50.254
+          api      IN A 192.168.50.254
+          api-int  IN A 192.168.50.254
+          registry IN A 192.168.50.50
+          git      IN A 192.168.50.50
+          *.apps   IN A 192.168.50.254
+          master01 IN A 192.168.50.10
+          master02 IN A 192.168.50.11
+          master03 IN A 192.168.50.12
+          worker01 IN A 192.168.50.13
+          worker02 IN A 192.168.50.14
+          idm  IN A 192.168.50.40
+      notify: restart named
+
+    - name: Ensure the reverse lookup zone file has the correct content.
+      ansible.builtin.copy:
+        dest: /var/named/ocp4.example.com.reverse.db
+        mode: 0644
+        owner: root
+        group: root
+        content: |
+          $TTL  1D
+          @     IN  SOA dns.ocp4.example.com. root.example.com. (
+                          2019022400 ; serial
+                          3h         ; refresh
+                          15         ; retry
+                          1w         ; expire
+                          3h         ; minimum
+                        )
+                    IN NS dns.ocp4.example.com.
+          254  IN PTR api.ocp4.example.com.
+          254  IN PTR api-int.ocp4.example.com.
+          50  IN PTR registry.ocp4.example.com.
+          50  IN PTR git.ocp4.example.com.
+          10  IN PTR  master01.ocp4.example.com.
+          11  IN PTR  master02.ocp4.example.com.
+          12  IN PTR  master03.ocp4.example.com.
+          13  IN PTR  worker01.ocp4.example.com.
+          14  IN PTR  worker02.ocp4.example.com.
+          40  IN PTR idm.ocp4.example.com.
+      notify: restart named
+
+    - name: Ensure Bind server is enabled and running.
+      ansible.builtin.systemd_service:
+        name: named
+        enabled: yes
+        state: started
+
   handlers:
     - name: restart dhcpd
       ansible.builtin.systemd_service:
         name: dhcpd
+        state: restarted
+
+    - name: restart named
+      ansible.builtin.systemd_service:
+        name: named
         state: restarted
 
     - name: reload systemd
