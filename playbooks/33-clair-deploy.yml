@@ -1,6 +1,17 @@
 ---
 # Tasks required by 15-clair-deploy.adoc.
-# TODO: import vuln updates somehow
+- name: Ensure backup file is readable by postgresql containers.
+  hosts: registry.ocp4.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Ensure backup file is owned by quay user.
+      ansible.builtin.file:
+        path: /local/backups/clair.backup
+        owner: quay
+        group: quay
+        mode: 0644
+
 - name: Prepare registry VM to run Clair services.
   hosts: registry.ocp4.example.com
   gather_subset: min
@@ -179,6 +190,90 @@
       ansible.builtin.systemd_service:
         daemon_reload: yes
         scope: user
+
+    - name: Verify that the vulnerability definitions exist.
+      containers.podman.podman_container_exec:
+        name: postgresql
+        command: psql -d clair -U postgres -t -c 'SELECT COUNT(id) FROM vuln'
+      ignore_errors: yes
+      register: clair_vuln
+
+    - name: Remember the number of vulnerability definitions in clair.
+      ansible.builtin.set_fact:
+        clair_nvuln: "{{ clair_vuln.stdout_lines[0] | default(0) | trim | int }}"
+
+    - name: Import clair backup if vulnerabilities seem to be missing.
+      block:
+
+        - name: Ensure clair service is stopped.
+          ansible.builtin.systemd_service:
+            name: clair
+            scope: user
+            state: stopped
+
+        - name: Ensure clair container is stopped.
+          containers.podman.podman_container:
+            name: clair
+            state: stopped
+
+        - name: Create a temporary pgpass file
+          ansible.builtin.copy:
+            dest: /tmp/pgpass
+            owner: quay
+            group: quay
+            mode: 0600
+            content: |
+              postgresql:5432:clair:postgres:verysecret
+
+        - name: Ensure the pgpass file is owned by postgres user of the container.
+          become_method: containers.podman.podman_unshare
+          become: yes
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: file 
+            owner: 26
+
+        - name: Run pg_restore in a clair_import container.
+          containers.podman.podman_container:
+            name: clair_import
+            image: "{{ registry_host }}/rhel9/postgresql-15:latest"
+            rm: yes
+            detach: no
+            network:
+              - quay
+            volumes:
+              - /local/backups/clair.backup:/clair.backup:Z
+              - /tmp/pgpass:/var/lib/pgsql/.pgpass:Z
+            command:
+              - pg_restore
+              - -dclair
+              - -Upostgres
+              - -hpostgresql
+              - -c
+              - /clair.backup
+            state: started
+          register: clair_import
+          ignore_errors: yes
+          failed_when: "FATAL" in clair_import.stderr_lines
+          # TODO: probably use a regex here
+
+        - debug: var=clair_import
+
+        - name: Restore the ownership of the file.
+          become_method: containers.podman.podman_unshare
+          become: yes
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: file
+            owner: 0
+
+        - name: Remove the pgpass file
+          ansible.builtin.file:
+            path: /tmp/pgpass
+            state: absent
+
+      when:
+        - clair_nvuln < 5000000
 
     - name: Enable services and start them.
       ansible.builtin.systemd_service:
