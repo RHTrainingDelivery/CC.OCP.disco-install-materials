@@ -4,7 +4,7 @@
 # XXX: If someone has gone beyond this point in the course and runs this playbook, it will revert the changes back to the original.
 - name: Warn that this playbook might cause subsequent exercises to be reverted.
   hosts: workstation.lab.example.com
-  gether_facts: no
+  gather_facts: no
   become: no
   tasks:
     - ansible.builtin.pause:
