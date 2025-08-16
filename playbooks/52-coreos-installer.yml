@@ -39,7 +39,7 @@
 
     - name: Check whether someone fiddled with installation before.
       ansible.builtin.stat:
-        path: "{{ ansible_facts['user_dir'] }}/embed/.openshift_install.log"
+        path: "{{ ansible_facts['user_dir'] }}/sno-iso/.openshift_install.log"
       register: install_log
 
     - name: Warn if installation log was found.
@@ -74,7 +74,7 @@
     - name: Ensure install-config is there.
       ansible.builtin.template:
         src: templates/install-config-template.yaml.j2
-        dest: "{{ ansible_facts['user_dir'] }}/install-config-embed.yaml"
+        dest: "{{ ansible_facts['user_dir'] }}/install-config-sno-iso.yaml"
         mode: 0644
         owner: student
         group: student
@@ -82,7 +82,7 @@
 
     - name: Remove the installation directory if so required.
       ansible.builtin.file:
-        path: "{{ ansible_facts['user_dir'] }}/embed"
+        path: "{{ ansible_facts['user_dir'] }}/sno-iso"
         state: absent
       when:
         - recreate_cluster_dir is defined
@@ -90,15 +90,15 @@
 
     - name: Ensure the presence of installation directory.
       ansible.builtin.file:
-        path: "{{ ansible_facts['user_dir'] }}/embed"
+        path: "{{ ansible_facts['user_dir'] }}/sno-iso"
         state: directory
         mode: 0755
 
     - name: Also, ensure that the right install-config.yaml file is in there.
       ansible.builtin.copy:
-        src: "{{ ansible_facts['user_dir'] }}/install-config-embed.yaml"
+        src: "{{ ansible_facts['user_dir'] }}/install-config-sno-iso.yaml"
         remote_src: yes
-        dest: "{{ ansible_facts['user_dir'] }}/embed/install-config.yaml"
+        dest: "{{ ansible_facts['user_dir'] }}/sno-iso/install-config.yaml"
         mode: 0644
       register: published_install_config
       when:
@@ -107,7 +107,7 @@
     - name: Create installation manifests if install config was published.
       ansible.builtin.command:
         cmd: openshift-install-fips create manifests
-        chdir: "{{ ansible_facts['user_dir'] }}/embed"
+        chdir: "{{ ansible_facts['user_dir'] }}/sno-iso"
       when: published_install_config.changed
 
     - name: Render chrony customizations in home directory.
@@ -123,9 +123,9 @@
 
     - name: Publish chrony customizations in manifests directory.
       ansible.builtin.command:
-        cmd: butane ./chrony-{{ item }}.bu -o ./embed/openshift/99_chrony_{{ item }}.yaml
+        cmd: butane ./chrony-{{ item }}.bu -o ./sno-iso/openshift/99_chrony_{{ item }}.yaml
         chdir: "{{ ansible_facts['user_dir'] }}"
-        creates: embed/openshift/99_chrony_{{ item }}.yaml
+        creates: sno-iso/openshift/99_chrony_{{ item }}.yaml
       loop:
         - master
         - worker
@@ -134,13 +134,13 @@
     - name: Everything should be set by now, so create SNO install config.
       ansible.builtin.command:
         cmd: openshift-install-fips create single-node-ignition-config
-        chdir: "{{ ansible_facts['user_dir'] }}/embed"
+        chdir: "{{ ansible_facts['user_dir'] }}/sno-iso"
       when: published_install_config.changed
       register: recreated_sno_cfg
 
     - name: Ensure custom ISO is gone if anything was changed.
       ansible.builtin.file:
-        path: "{{ ansible_facts['user_dir'] }}/sno-embedded-cfg.iso"
+        path: "{{ ansible_facts['user_dir'] }}/sno-coreos-installer.iso"
         state: absent
       when:
         - recreated_sno_cfg is defined
@@ -148,7 +148,7 @@
 
     - name: Check if custom ISO is there.
       ansible.builtin.stat:
-        path: "{{ ansible_facts['user_dir'] }}/sno-embedded-cfg.iso"
+        path: "{{ ansible_facts['user_dir'] }}/sno-coreos-installer.iso"
         get_attributes: no
         get_checksum: no
         get_mime: no
@@ -156,9 +156,125 @@
 
     - name: Embed install config in the ISO.
       ansible.builtin.command:
-        cmd: coreos-installer iso ignition embed -fi ./embed/bootstrap-in-place-for-live-iso.ign -o sno-embedded-cfg.iso {{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
+        cmd: coreos-installer iso ignition embed -fi ./sno-iso/bootstrap-in-place-for-live-iso.ign -o sno-coreos-installer.iso {{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
         chdir: "{{ ansible_facts['user_dir'] }}"
       when: not custom_iso.stat.exists
+
+- name: Ensure utility is configured in terms of DNS and DHCP.
+  hosts: utility.lab.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Ensure the old master01 host config is gone (it is a single line).
+      ansible.builtin.lineinfile:
+        path: /etc/dhcp/dhcpd.conf
+        regexp: '\s*host master01\.ocp4\.example\.com { .* }\s*$'
+        state: absent
+      notify:
+        - restart dhcpd
+
+    - name: Ensure the new master01 host config is present (it is a block).
+      ansible.builtin.blockinfile:
+        path: /etc/dhcp/dhcpd.conf
+        marker: '# {mark} DHCP config for master01'
+        marker_begin: "Start"
+        marker_end: "End"
+        block: |
+                  host master01.ocp4.example.com {
+                        hardware ethernet 52:54:00:00:32:0A;
+                        fixed-address 192.168.50.10;
+                        option host-name "master01";
+                        option domain-name "iso.ocp4.example.com";
+                        option routers 127.0.0.1;
+                  }
+        insertbefore: "host master02"
+        state: present
+      notify:
+        - restart dhcpd
+
+    - name: Ensure forward DNS records are there.
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.db
+        regexp: "{{ item.regex }}"
+        line: "{{ item.line }}"
+        insertafter: "{{ item.after }}"
+      loop:
+        - regex: '^master01\.iso '
+          line: "master01.iso IN A 192.168.50.10"
+          after: '^master01 '
+        - regex: '^api\.iso '
+          line: "api.iso IN CNAME master01.iso"
+          after: '^master01\.iso '
+        - regex: '^api-int\.iso '
+          line: "api-int.iso IN CNAME master01.iso"
+          after: '^api\.iso '
+        - regex: '^\*\.apps\.iso '
+          line: "*.apps.iso IN A 192.168.50.10"
+          after: '^api-int\.iso '
+      register: dnsfw_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the forward zone if changed.
+      block:
+
+        - name: Load the zone file.
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.db
+          register: zonefile_fw
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_fw_serial: "{{ (zonefile_fw.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.db
+            regexp: "; serial"
+            line: "                {{ new_fw_serial }} ; serial"
+
+      when: dnsfw_fix.changed
+
+    - name: Ensure reverse DNS record is there.
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.reverse.db
+        regexp: '^10\s+IN\s+PTR'
+        line: "10  IN PTR master01.iso.ocp4.example.com."
+        insertbefore: "master02"
+      register: dnsre_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the reverse zone if changed.
+      block:
+
+        - name: Load the zone file.
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.reverse.db
+          register: zonefile_re
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_re_serial: "{{ (zonefile_re.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.reverse.db
+            regexp: "; serial"
+            line: "                {{ new_re_serial }} ; serial"
+
+      when: dnsre_fix.changed
+
+  handlers:
+    - name: restart dhcpd
+      ansible.builtin.systemd_service:
+        name: dhcpd
+        state: restarted
+
+    - name: reload dns
+      ansible.builtin.systemd_service:
+        name: named
+        state: reloaded
 
 - name: Copy the ISO file to target machine and write it to /dev/sdb
   hosts: master01.ocp4.example.com
@@ -167,14 +283,14 @@
   tasks:
     - name: Copy the ISO file to master01.
       ansible.builtin.copy:
-        src: /home/student/sno-embedded-cfg.iso
-        dest: /root/sno-embedded-cfg.iso
+        src: /home/student/sno-coreos-installer.iso
+        dest: /root/sno-coreos-installer.iso
         mode: 0644
       register: copied_iso
 
     - name: Write the ISO to /dev/sdb if it was changed.
       ansible.builtin.command:
-        cmd: dd if=/root/sno-embedded-cfg.iso of=/dev/sdb conv=sync bs=4k
+        cmd: dd if=/root/sno-coreos-installer.iso of=/dev/sdb conv=sync bs=4k
       when: copied_iso.changed
       register: wrote_iso
 
