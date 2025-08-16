@@ -13,6 +13,8 @@
 - import_playbook: 34-clair-disable.yml
 
 - import_playbook: 40-mirror-prep.yml
+# This one will probably blow up, so anything beyond this point will need to be
+# run manually to prevent excessive time wastage.
 - import_playbook: 45-oc-mirror.yml
 
 - import_playbook: 50-install-prepare.yml
