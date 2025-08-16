@@ -2,7 +2,22 @@
 # Download all the tools, set up registry credentials, ssh keys, and ensure the health of a DHCP and a DNS server on utility.
 #
 # XXX: If someone has gone beyond this point in the course and runs this playbook, it will revert the changes back to the original.
-#
+- name: Warn that this playbook might cause subsequent exercises to be reverted.
+  hosts: workstation.lab.example.com
+  gether_facts: no
+  become: no
+  tasks:
+    - ansible.builtin.pause:
+        prompt: |
+          WARNING: This playbook resets the configuration of DNS and DHCP services to what they
+                   are originally when the lab is provisioned.
+          
+                   This means that if you have performed any exercises past the preparation for
+                   installation, your changes will be reverted.
+          
+                   Continuing in 10 seconds unless you interrupt execution.
+        seconds: 10
+
 - name: Download all the tools we need on workstation, set up registry credentials, and a SSH keypair.
   hosts: workstation.lab.example.com
   gather_subset: min
