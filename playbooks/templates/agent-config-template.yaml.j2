@@ -4,11 +4,11 @@ metadata:
   name: agent-cluster
 rendezvousIP: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}
 additionalNTPSources:
-  - utility.lab.example.com
+  - 192.168.50.254
 hosts:
   - hostname: {{ hostvars[install_host]['inventory_hostname_short'] }}
     rootDeviceHints:
-      deviceName: /dev/vda
+      deviceName: /dev/sda
     interfaces:
       - name: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['interface'] }}
         macAddress: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['macaddress'] }}
