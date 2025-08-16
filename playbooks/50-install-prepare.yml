@@ -15,7 +15,7 @@
                    This means that if you have performed any exercises past the preparation for
                    installation, your changes will be reverted.
           
-                   Continuing in 10 seconds unless you interrupt execution.
+                   Continuing in 10 seconds unless you interrupt execution with Ctrl-C.
         seconds: 10
 
 - name: Download all the tools we need on workstation, set up registry credentials, and a SSH keypair.
