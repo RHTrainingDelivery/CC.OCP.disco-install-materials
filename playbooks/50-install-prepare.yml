@@ -9,16 +9,16 @@
   tasks:
     - ansible.builtin.pause:
         prompt: |
-          WARNING: This playbook resets the configuration of DNS and DHCP services to what they
-                   are originally when the lab is provisioned.
+          WARNING: This playbook resets the configuration of DNS and DHCP services to
+                   what they are originally when the lab is provisioned.
           
-                   This means that if you have performed any exercises past the preparation for
-                   installation, your changes will be reverted.
+                   This means that if you have performed any exercises past this one
+                   (preparation for installation), your changes will be reverted.
           
                    Continuing in 10 seconds unless you interrupt execution with Ctrl-C.
         seconds: 10
 
-- name: Download all the tools we need on workstation, set up registry credentials, and a SSH keypair.
+- name: Download all the tools we need on workstation, set up registry credentials, and an SSH keypair.
   hosts: workstation.lab.example.com
   gather_subset: min
   become: no
