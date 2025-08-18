@@ -1,5 +1,8 @@
 ---
 # Perform the tasks involved with installing SNO using coreos-installer.
+# 
+# NOTE: If you want to skip the dangerous parts, use --skip-tags=destroy
+#
 - name: Prepare the files required for a SNO installation using coreos-installer.
   hosts: workstation.lab.example.com
   become: no
@@ -293,16 +296,22 @@
         cmd: dd if=/root/sno-coreos-installer.iso of=/dev/sdb conv=sync bs=4k
       when: copied_iso.changed
       register: wrote_iso
+      tags:
+        - destroy
 
     - name: Wipe the filesystem of /dev/sda if ISO was written to /dev/sdb.
       ansible.builtin.command:
         cmd: wipefs -af /dev/sda
       when: wrote_iso.changed
       register: wiped_fs
+      tags:
+        - destroy
 
     - name: Reboot the machine if filesystem was wiped.
       ansible.builtin.command:
         cmd: reboot
       ignore_errors: yes
       when: wiped_fs.changed
+      tags:
+        - destroy
 ...

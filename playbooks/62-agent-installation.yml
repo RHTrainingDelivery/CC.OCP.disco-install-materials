@@ -1,6 +1,9 @@
 ---
 # Configure the agent installation artifacts for SNO.
 # Mostly the same as 52-coreos-installer.yml, but some changes.
+# 
+# NOTE: If you want to skip the dangerous parts, use --skip-tags=destroy
+#
 - name: Prepare the files required for a SNO installation using agent install.
   hosts: workstation.lab.example.com
   become: no
@@ -199,35 +202,41 @@
         chdir: "{{ ansible_facts['user_dir'] }}/agent"
       when: not agent_iso.stat.exists
 
-#- name: Copy the ISO file to target machine and write it to /dev/sdb
-#  hosts: master02.ocp4.example.com
-#  gather_subset: min
-#  become: yes
-#  tasks:
-#    - name: Copy the ISO file to master01.
-#      ansible.builtin.copy:
-#        src: /home/student/agent/agent.x86_64.iso
-#        dest: /root/agent.x86_64.iso
-#        mode: 0644
-#      register: copied_iso
-#
-#    # TODO: ensure /dev/sdb1 exists and is bootable
-#
-#    - name: Write the ISO to /dev/sdb1 if it was changed.
-#      ansible.builtin.command:
-#        cmd: dd if=/root/agent.x86_64.iso of=/dev/sdb1 conv=sync bs=4k
-#      when: copied_iso.changed
-#      register: wrote_iso
-#
-#    - name: Wipe the filesystem of /dev/sda if ISO was written to /dev/sdb1.
-#      ansible.builtin.command:
-#        cmd: wipefs -af /dev/sda
-#      when: wrote_iso.changed
-#      register: wiped_fs
-#
-#    - name: Reboot the machine if filesystem was wiped.
-#      ansible.builtin.command:
-#        cmd: reboot
-#      ignore_errors: yes
-#      when: wiped_fs.changed
+- name: Copy the ISO file to target machine and write it to /dev/sdb
+  hosts: master02.ocp4.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Copy the ISO file to master01.
+      ansible.builtin.copy:
+        src: /home/student/agent/agent.x86_64.iso
+        dest: /root/agent.x86_64.iso
+        mode: 0644
+      register: copied_iso
+
+    # TODO: ensure /dev/sdb1 exists and is bootable
+
+    - name: Write the ISO to /dev/sdb1 if it was changed.
+      ansible.builtin.command:
+        cmd: dd if=/root/agent.x86_64.iso of=/dev/sdb1 conv=sync bs=4k
+      when: copied_iso.changed
+      register: wrote_iso
+      tags:
+        - destroy
+
+    - name: Wipe the filesystem of /dev/sda if ISO was written to /dev/sdb1.
+      ansible.builtin.command:
+        cmd: wipefs -af /dev/sda
+      when: wrote_iso.changed
+      register: wiped_fs
+      tags:
+        - destroy
+
+    - name: Reboot the machine if filesystem was wiped.
+      ansible.builtin.command:
+        cmd: reboot
+      ignore_errors: yes
+      when: wiped_fs.changed
+      tags:
+        - destroy
 ...
