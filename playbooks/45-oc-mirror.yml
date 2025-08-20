@@ -259,6 +259,7 @@
              - name: registry.redhat.io/ubi9/ubi:latest
              - name: registry.redhat.io/ubi9/toolbox:latest
 
+    # NOTE: this will most probably fail the first time.
     - name: Kick off "oc mirror".
       ansible.builtin.command:
         cmd: oc mirror --v2 -c {{ ansible_facts['user_dir'] }}/image-set-config.yaml --workspace file://{{ ansible_facts['user_dir'] }}/mirror/ docker://registry.ocp4.example.com
