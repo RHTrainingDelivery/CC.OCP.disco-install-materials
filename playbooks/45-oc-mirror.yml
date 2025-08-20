@@ -103,6 +103,7 @@
             - (quay_import.stderr | regex_search('FATAL')) != ""
           # TODO: what's up with no output, no rc, but still failed?!?
 
+        # TODO: demote the verbosity level of this one
         - debug: var=quay_import
 
         - name: Restore the ownership of the file.
@@ -118,21 +119,46 @@
             path: /tmp/pgpass
             state: absent
 
-        - name: Remove the current Quay data directories.
-          remote_user: lab
-          become: yes
-          ansible.builtin.file:
-            path: /local/quay/{{ item }}
-            state: absent
-          loop:
-            - sha256
-            - uploads
+        # XXX OBSOLETED BY OVERLAY MOUNT XXX
+        #- name: Remove the current Quay data directories.
+        #  remote_user: lab
+        #  become: yes
+        #  ansible.builtin.file:
+        #    path: /local/quay/{{ item }}
+        #    state: absent
+        #  loop:
+        #    - sha256
+        #    - uploads
+        #
+        #- name: Extract the latest Quay data directory backup (takes around half an hour).
+        #  remote_user: lab
+        #  become: yes
+        #  ansible.builtin.command:
+        #    cmd: tar xpf /local/backups/quay-data.tar.bz2 -C /local
 
-        - name: Extract the latest Quay data directory backup (takes around half an hour).
-          remote_user: lab
-          become: yes
-          ansible.builtin.command:
-            cmd: tar xpf /local/backups/quay-data.tar.bz2 -C /local
+        - name: Ensure working directories exist
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: directory
+            owner: "{{ item.owner | default('root') }}"
+            group: "{{ item.group | default('root') }}"
+            mode: "{{ item.mode | default(0755) }}"
+          loop:
+            - path: /local/overlay/upper
+            - path: /local/overlay/work
+            - path: /local/quay
+              owner: quay
+              group: quay
+              mode: 0775
+
+        - name: Underlay /local/backups/quay to /local/quay
+          ansible.posix.mount:
+            boot: yes
+            fstype: overlay
+            path: /local/quay
+            opts: lowerdir=/local/backups/quay,upperdir=/local/overlay/upper,workdir=/local/overlay/work
+            src: overlay
+            state: mounted
 
         - name: Ensure quay service is started after this.
           ansible.builtin.systemd_service:
