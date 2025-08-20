@@ -178,6 +178,7 @@
             state: directory
             owner: quay
             group: quay
+            recurse: yes
             mode: 0775
 
         - name: And further ensure that the ownership is by user of the container.
@@ -186,6 +187,7 @@
           ansible.builtin.file:
             path: /local/quay
             state: directory
+            recurse: yes
             owner: 1001
 
         - name: Ensure quay service is started after this.
