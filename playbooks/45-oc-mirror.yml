@@ -147,7 +147,13 @@
             mode: "{{ item.mode | default('0755') }}"
           loop:
             - path: /local/overlay/upper
+              owner: quay
+              group: quay
+              mode: 0775
             - path: /local/overlay/work
+              owner: quay
+              group: quay
+              mode: 0775
             - path: /local/quay
               owner: quay
               group: quay
@@ -160,9 +166,27 @@
             boot: yes
             fstype: overlay
             path: /local/quay
-            opts: lowerdir=/local/backups/quay,upperdir=/local/overlay/upper,workdir=/local/overlay/work
+            opts: userxattr,lowerdir=/local/backups/quay,upperdir=/local/overlay/upper,workdir=/local/overlay/work
             src: overlay
             state: mounted
+
+        - name: Again ensure the mount has correct ownership.
+          remote_user: lab
+          become: yes
+          ansible.builtin.file:
+            path: /local/quay
+            state: directory
+            owner: quay
+            group: quay
+            mode: 0775
+
+        - name: And further ensure that the ownership is by user of the container.
+          become_method: containers.podman.podman_unshare
+          become: yes
+          ansible.builtin.file:
+            path: /local/quay
+            state: directory
+            owner: 1001
 
         - name: Ensure quay service is started after this.
           ansible.builtin.systemd_service:
