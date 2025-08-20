@@ -1,17 +1,5 @@
 ---
-# Create image set config if necessary, start "oc mirror".
-- name: Ensure backup file is owned by quay user.
-  hosts: registry.ocp4.example.com
-  gather_subset: min
-  become: yes
-  tasks:
-    - name: Ensure database backup file is owned by quay user.
-      ansible.builtin.file:
-        path: /local/backups/quay-db.backup
-        owner: quay
-        group: quay
-        mode: 0644
-
+# Ensure images are mirrored in the local Quay registry instance.
 - name: Ensure registry has a default (pre-mirrored) set of images.
   hosts: registry.ocp4.example.com
   gather_subset: min
@@ -25,8 +13,10 @@
       ignore_errors: yes
       register: quay_mft
 
+    # TODO: demote the verbosity level of this one or remove it.
     - debug: var=quay_mft
 
+    # TODO: why?
     - debug:
         msg: "{{ (quay_mft.stderr | ansible.builtin.regex_search('FATAL:  database .* does not exist')) }}"
 
@@ -49,6 +39,16 @@
             image: "{{ registry_host }}/quay/quay-rhel8:v{{ quay_version }}"
             state: stopped
             timeout: 60
+
+        # NOTE: this is required because of SELinux context change for the container below.
+        - name: Ensure database backup file is owned by quay user.
+          remote_user: lab
+          become: yes
+          ansible.builtin.file:
+            path: /local/backups/quay-db.backup
+            owner: quay
+            group: quay
+            mode: 0644
 
         - name: Create the database if necessary.
           containers.podman.podman_container_exec:
@@ -137,6 +137,8 @@
         #    cmd: tar xpf /local/backups/quay-data.tar.bz2 -C /local
 
         - name: Ensure working directories exist
+          remote_user: lab
+          become: yes
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: directory
@@ -152,6 +154,8 @@
               mode: 0775
 
         - name: Underlay /local/backups/quay to /local/quay
+          remote_user: lab
+          become: yes
           ansible.posix.mount:
             boot: yes
             fstype: overlay
