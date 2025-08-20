@@ -1,17 +1,5 @@
 ---
 # Tasks required by 15-clair-deploy.adoc.
-- name: Ensure backup file is readable by postgresql containers.
-  hosts: registry.ocp4.example.com
-  gather_subset: min
-  become: yes
-  tasks:
-    - name: Ensure backup file is owned by quay user.
-      ansible.builtin.file:
-        path: /local/backups/clair.backup
-        owner: quay
-        group: quay
-        mode: 0644
-
 - name: Prepare registry VM to run Clair services.
   hosts: registry.ocp4.example.com
   gather_subset: min
@@ -216,6 +204,16 @@
             name: clair
             image: "{{ registry_host }}/quay/clair-rhel8:v{{ quay_version }}"
             state: stopped
+
+        # NOTE: This is required due to SELinux context changes for the container task below.
+        - name: Ensure backup file is owned by quay user.
+          remote_user: lab
+          become: yes
+          ansible.builtin.file:
+            path: /local/backups/clair.backup
+            owner: quay
+            group: quay
+            mode: 0644
 
         - name: Create a temporary pgpass file
           ansible.builtin.copy:
