@@ -1,8 +1,13 @@
 ---
-# Unfortunately, you must run this one yourself.
-#- import_playbook: 00-general-pre-flight.yml
+# If you want to skip the dangerous parts (destroying filesystems, writing to disks, etc.), run with:
+#
+#   --skip-tags=destroy
+#
+# Unfortunately, you must run this one separately:
+#   - import_playbook: 00-general-pre-flight.yml
 
 # Do everything else all at once, and in correct order.
+#
 #- import_playbook: 10-lab-tmp-fixes.yml <-- nothing to do here at the moment
 - import_playbook: 20-general-post-tmp.yml
 
@@ -13,11 +18,13 @@
 - import_playbook: 34-clair-disable.yml
 
 - import_playbook: 40-mirror-prep.yml
+
 # This one will probably blow up, so anything beyond this point will need to be
 # run manually to prevent excessive time wastage.
 - import_playbook: 45-oc-mirror.yml
 
 - import_playbook: 50-install-prepare.yml
-
 - import_playbook: 52-coreos-installer.yml
+- import_playbook: 60-agent-inst-prep.yml
+- import_playbook: 62-agent-installation.yml
 ...
