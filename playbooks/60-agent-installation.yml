@@ -1,15 +1,9 @@
 ---
 # Configure the agent installation artifacts for SNO.
-# Mostly the same as 52-coreos-installer.yml, but some changes.
+# Mostly the same as 55-coreos-installer.yml, but some changes.
 # 
 # NOTE: If you want to skip the dangerous parts, use --skip-tags=destroy
 #
-# Perform the preparation tasks for agent-based installation.
-# Basically the same as 50-coreos-inst-prep.yml plus a couple of steps.
-#
-# TODO: somehow skip the reset of the DNS zones and DHCP config.
-- import_playbook: 50-install-prepare.yml
-
 - name: Prepare the files required for a SNO installation using agent install.
   hosts: workstation.lab.example.com
   become: no

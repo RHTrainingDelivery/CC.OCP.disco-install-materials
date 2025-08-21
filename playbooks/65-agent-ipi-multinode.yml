@@ -1,0 +1,46 @@
+---
+# Configure the agent installation artifacts for multi-node PXE installation.
+- name: Prepare the files required for a multi-node installation using agent install.
+  hosts: workstation.lab.example.com
+  become: no
+  gather_subset: min
+  tasks:
+    # NOTE: This one is actually a prep item, but it's only needed for agent installs.
+    - name: Ensure nmstate is installed.
+      become: yes
+      ansible.builtin.yum:
+        name: nmstate
+        state: present
+
+    - name: Check the dependency status.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: dependencies
+      loop:
+        - install-pull-secret
+        - .ssh/openshift.pub
+        - ca/ca-cert.pem
+        - mirror/working-dir/cluster-resources/idms-oc-mirror.yaml
+        - Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso
+
+    - ansible.builtin.assert:
+        that:
+          - dependencies.results[0].stat.exists
+          - dependencies.results[1].stat.exists
+          - dependencies.results[2].stat.exists
+          - dependencies.results[3].stat.exists
+          - dependencies.results[4].stat.exists
+        fail_msg: |
+          ERROR: Either pull secret, SSH keypair, CA certificate, RHCOS ISO, or mirror artifacts are missing.
+          Ensure all the relevant preceding tasks have been completed:
+            - Quay prerequisites,
+            - Quay deployment,
+            - oc-mirror prerequisites,
+            - oc-mirror execution,
+            - coreos-installer prerequisites
+          Exiting.
+        success_msg: "OK, dependencies exist."
+...

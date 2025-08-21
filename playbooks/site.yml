@@ -24,7 +24,7 @@
 - import_playbook: 45-oc-mirror.yml
 
 - import_playbook: 50-install-prepare.yml
-- import_playbook: 52-coreos-installer.yml
-- import_playbook: 60-agent-inst-prep.yml
-- import_playbook: 62-agent-installation.yml
+- import_playbook: 55-coreos-installer.yml
+- import_playbook: 60-agent-installation.yml
+- import_playbook: 65-agent-ipi-multinode.yml
 ...
