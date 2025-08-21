@@ -322,22 +322,22 @@
         insertafter: "{{ item.after | default(omit) }}"
         insertbefore: "{{ item.before | default(omit) }}"
       loop:
-        - regex: '^master01\..* '
+        - regex: '^master01\.ipi '
           line: "master01.ipi IN A 192.168.50.10"
           after: '^master01 '
-        - regex: '^master02\..* '
+        - regex: '^master02\.ipi '
           line: "master02.ipi IN A 192.168.50.11"
           after: '^master02 '
-        - regex: '^master03\..* '
+        - regex: '^master03\.ipi '
           line: "master03.ipi IN A 192.168.50.12"
           after: '^master03 '
-        - regex: '^worker01\..* '
+        - regex: '^worker01\.ipi '
           line: "worker01.ipi IN A 192.168.50.13"
           after: '^worker01 '
-        - regex: '^worker02\..* '
+        - regex: '^worker02\.ipi '
           line: "worker02.ipi IN A 192.168.50.14"
           after: '^worker02 '
-        - regex: '^api\..* '
+        - regex: '^api\.ipi '
           line: "api.ipi IN A 192.168.50.8"
           before: '^master01\.ipi '
         - regex: '^api-int\.ipi '
