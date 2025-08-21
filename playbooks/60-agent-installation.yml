@@ -295,12 +295,6 @@
       when: dnsre_fix.changed
 
   handlers:
-    - name: restart dhcpd
-      become: yes
-      ansible.builtin.systemd_service:
-        name: dhcpd
-        state: restarted
-
     - name: reload dns
       become: yes
       ansible.builtin.systemd_service:
