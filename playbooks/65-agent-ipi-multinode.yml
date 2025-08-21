@@ -1,5 +1,10 @@
 ---
 # Configure the agent installation artifacts for multi-node PXE installation.
+#
+# TODO: For fact delegation, when certain hosts are unreachable, add 
+#       "ignore_unreachable: yes" to the tasks and then handle it with a
+#       prompt & fail afterwards.
+#
 - name: Prepare the files required for a multi-node installation using agent install.
   hosts: workstation.lab.example.com
   become: no
@@ -78,13 +83,28 @@
       ansible.builtin.set_fact:
         install_type: ipi
         install_host: master03.ocp4.example.com
+        other_hosts:
+          - name: master01.ocp4.example.com
+            role: master
+          - name: master02.ocp4.example.com
+            role: master
+          - name: worker01.ocp4.example.com
+            role: worker
+          - name: worker02.ocp4.example.com
+            role: worker
 
-    - name: Collect facts from the target machine (must be reachable for that).
-      delegate_to: "{{ item }}"
+    - name: Collect facts from the rendezvous machine (must be reachable for that).
+      delegate_to: "{{ install_host }}"
       delegate_facts: yes
       ansible.builtin.setup:
         gather_subset: min,interfaces
-      loop: "{{ install_hosts }}"
+
+    - name: Collect facts from the other machines (must be reachable for that).
+      delegate_to: "{{ item.name }}"
+      delegate_facts: yes
+      ansible.builtin.setup:
+        gather_subset: min,interfaces
+      loop: "{{ other_hosts }}"
 
     - name: Ensure install-config is there.
       ansible.builtin.template:
@@ -95,117 +115,323 @@
         group: student
       register: updated_install_config
 
-#    - name: Ensure agent-config is there.
-#      ansible.builtin.template:
-#        src: templates/agent-config-template.yaml.j2
-#        dest: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
-#        mode: 0644
-#        owner: student
-#        group: student
-#      register: updated_agent_config
-#
-#    - name: Remove the installation directory if so required.
-#      ansible.builtin.file:
-#        path: "{{ ansible_facts['user_dir'] }}/agent"
-#        state: absent
-#      when:
-#        - recreate_cluster_dir is defined
-#        - recreate_cluster_dir
-#
-#    - name: Ensure the presence of installation directory.
-#      ansible.builtin.file:
-#        path: "{{ ansible_facts['user_dir'] }}/agent"
-#        state: directory
-#        mode: 0755
-#
-#    - name: Also, ensure that the right install-config.yaml file is in there.
-#      ansible.builtin.copy:
-#        src: "{{ ansible_facts['user_dir'] }}/install-config-agent.yaml"
-#        remote_src: yes
-#        dest: "{{ ansible_facts['user_dir'] }}/agent/install-config.yaml"
-#        mode: 0644
-#      register: published_install_config
-#      when:
-#        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
-#
-#    - name: The same, but for agent-config.yaml.
-#      ansible.builtin.copy:
-#        src: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
-#        remote_src: yes
-#        dest: "{{ ansible_facts['user_dir'] }}/agent/agent-config.yaml"
-#        mode: 0644
-#      register: published_agent_config
-#      when:
-#        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
-#
-#    - name: This block will only execute if install-config or agent-config files were published.
-#      block:
-#
-#        - name: Ensure the presence of customization directory.
-#          ansible.builtin.file:
-#            path: "{{ ansible_facts['user_dir'] }}/agent/openshift"
-#            state: directory
-#            mode: 0755
-#
-#        - name: Render chrony customizations in home directory.
-#          ansible.builtin.template:
-#            src: templates/chrony-customization.bu.j2
-#            dest: "{{ ansible_facts['user_dir'] }}/chrony-{{ item }}.bu"
-#            mode: 0644
-#            owner: student
-#            group: student
-#          loop:
-#            - master
-#            - worker
-#
-#        - name: Publish chrony customizations in manifests directory.
-#          ansible.builtin.command:
-#            cmd: butane ./chrony-{{ item }}.bu -o ./agent/openshift/99_chrony_{{ item }}.yaml
-#            chdir: "{{ ansible_facts['user_dir'] }}"
-#            creates: agent/openshift/99_chrony_{{ item }}.yaml
-#          loop:
-#            - master
-#            - worker
-#
-#        - name: Ensure the agent image cache directory exists.
-#          ansible.builtin.file:
-#            path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache"
-#            state: directory
-#            mode: 0755
-#
-#        - name: Ensure that the agent ISO and all other artifacts are gone if anything was updated.
-#          ansible.builtin.file:
-#            path: "{{ ansible_facts['user_dir'] }}/agent/{{ item }}"
-#            state: absent
-#          loop:
-#            - agent.x86_64.iso
-#            - auth
-#            - rendezvousIP
-#            - .openshift_install.log
-#            - .openshift_install_state.json
-#
-#      when: published_install_config.changed or published_agent_config.changed
-#
-#    - name: Check whether the ISO is there.
-#      ansible.builtin.stat:
-#        path: "{{ ansible_facts['user_dir'] }}/agent/agent.x86_64.iso"
-#        get_attributes: no
-#        get_checksum: no
-#        get_mime: no
-#      register: agent_iso
-#
-#    - name: Ensure that CoreOS ISO is a link to the downloaded one in Downloads.
-#      ansible.builtin.file:
-#        path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache/coreos-x86_64.iso"
-#        state: hard
-#        src: "{{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso"
-#
-#    - name: Create agent installation ISO.
-#      ansible.builtin.command:
-#        cmd: openshift-install-fips agent create image
-#        chdir: "{{ ansible_facts['user_dir'] }}/agent"
-#      when: not agent_iso.stat.exists
-#
-## TODO: copy the installation files to utility and fix the boot config files.
+    - name: Ensure agent-config is there.
+      ansible.builtin.template:
+        src: templates/agent-config-template.yaml.j2
+        dest: "{{ ansible_facts['user_dir'] }}/agent-config-ipi.yaml"
+        mode: 0644
+        owner: student
+        group: student
+      register: updated_agent_config
+
+    - name: Remove the installation directory if so required.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/ipi"
+        state: absent
+      when:
+        - recreate_cluster_dir is defined
+        - recreate_cluster_dir
+
+    - name: Ensure the presence of installation directory.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/ipi"
+        state: directory
+        mode: 0755
+
+    - name: Also, ensure that the right install-config.yaml file is in there.
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['user_dir'] }}/install-config-ipi.yaml"
+        remote_src: yes
+        dest: "{{ ansible_facts['user_dir'] }}/ipi/install-config.yaml"
+        mode: 0644
+      register: published_install_config
+      when:
+        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
+
+    - name: The same, but for agent-config.yaml.
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['user_dir'] }}/agent-config-ipi.yaml"
+        remote_src: yes
+        dest: "{{ ansible_facts['user_dir'] }}/ipi/agent-config.yaml"
+        mode: 0644
+      register: published_agent_config
+      when:
+        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
+
+    # TODO: agent installer needs to have a disabled check of valid-platform-network-settings or it refuses to
+    #       install complaining about OpenStack not being supported. Long story short:
+    #
+    #       https://github.com/openshift/assisted-service/blob/94614068710f5e528f56ab034988cb7d1ad42f0d/docs/user-guide/deploy-on-OSP.md
+    #       https://github.com/orgs/okd-project/discussions/2112
+    #
+    #       I suppose there has to be a customization of /var/usrlocal/share/assisted-service/assisted-service.env,
+    #       where DISABLED_HOST_VALIDATIONS=valid-platform-network-settings
+    #
+    #       Short of that, the rendezvous host needs to have this file patched, then:
+    #
+    #       systemctl restart assisted-service
+    #       systemctl restart agent
+    #
+    #       and reboot any nodes that have registered by then so they re-register.
+    #
+    - name: This block will only execute if install-config or agent-config files were published.
+      block:
+
+        - name: Ensure the presence of customization directory.
+          ansible.builtin.file:
+            path: "{{ ansible_facts['user_dir'] }}/ipi/openshift"
+            state: directory
+            mode: 0755
+
+        - name: Render chrony customizations in home directory.
+          ansible.builtin.template:
+            src: templates/chrony-customization.bu.j2
+            dest: "{{ ansible_facts['user_dir'] }}/chrony-{{ item }}.bu"
+            mode: 0644
+            owner: student
+            group: student
+          loop:
+            - master
+            - worker
+
+        - name: Publish chrony customizations in manifests directory.
+          ansible.builtin.command:
+            cmd: butane ./chrony-{{ item }}.bu -o ./ipi/openshift/99_chrony_{{ item }}.yaml
+            chdir: "{{ ansible_facts['user_dir'] }}"
+            creates: ipi/openshift/99_chrony_{{ item }}.yaml
+          loop:
+            - master
+            - worker
+
+        - name: Ensure the agent image cache directory exists.
+          ansible.builtin.file:
+            path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache"
+            state: directory
+            mode: 0755
+
+        - name: Ensure that the agent ISO and all other artifacts are gone if anything was updated.
+          ansible.builtin.file:
+            path: "{{ ansible_facts['user_dir'] }}/ipi/{{ item }}"
+            state: absent
+          loop:
+            - auth
+            - boot-artifacts
+            - .openshift_install.log
+            - .openshift_install_state.json
+
+      when: published_install_config.changed or published_agent_config.changed
+
+    - name: Check whether the initrd is there.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ipi/boot-artifacts/agent.x86_64-initrd.img"
+        get_attributes: no
+        get_checksum: no
+        get_mime: no
+      register: agent_initrd
+
+    - name: Ensure that CoreOS ISO is a link to the downloaded one in Downloads.
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache/coreos-x86_64.iso"
+        state: hard
+        src: "{{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso"
+
+    - name: Create agent boot artifacts.
+      ansible.builtin.command:
+        cmd: openshift-install-fips agent create pxe-files
+        chdir: "{{ ansible_facts['user_dir'] }}/ipi"
+      when: not agent_initrd.stat.exists
+
+# Copy the boot artifacts to utility and prepare the PXE boot stuff, fix DNS bits.
+- name: Copy the boot artifacts to utility and prepare the PXE boot stuff.
+  hosts: utility.lab.example.com
+  become: no
+  gather_subset: min
+  tasks:
+    - name: Set the fact containing all the installation hosts.
+      ansible.builtin.set_fact:
+        install_hosts:
+          - master01.ocp4.example.com
+          - master02.ocp4.example.com
+          - master03.ocp4.example.com
+          - worker01.ocp4.example.com
+          - worker02.ocp4.example.com
+
+    - name: Collect facts from the installation machines (must be reachable for that).
+      delegate_to: "{{ item }}"
+      delegate_facts: yes
+      ansible.builtin.setup:
+        gather_subset: min,interfaces
+      loop: "{{ install_hosts }}"
+
+    - name: Ensure there is a target directory for boot files on utility.
+      become: yes
+      ansible.builtin.file:
+        path: /var/www/html/openshift4/ipi
+        owner: root
+        group: root
+        mode: 0755
+        state: directory
+
+    - name: Copy the boot artifacts to the target directory if necessary.
+      become: yes
+      ansible.builtin.copy:
+        src: "/home/student/ipi/boot-artifacts/{{ item }}"
+        dest: "/var/www/html/openshift4/ipi/{{ item }}"
+        owner: root
+        group: root
+        mode: 0644
+      loop:
+        - agent.x86_64-vmlinuz
+        - agent.x86_64-initrd.img
+        - agent.x86_64-rootfs.img
+
+    - name: Ensure the IPI PXE boot config file is in TFTP boot directory.
+      become: yes
+      ansible.builtin.copy:
+        dest: "/var/lib/tftpboot/pxelinux.cfg/pxeboot-ipi.cfg"
+        owner: root
+        group: root
+        mode: 0644
+        content: |
+          default menu.c32
+          prompt 0
+          timeout 50
+          menu title **** OpenShift 4.18.6 Agent PXE Boot Menu ****
+          
+          label Install CoreOS 4.18.6 Agent Node
+           kernel http://192.168.50.254:8080/openshift4/ipi/agent.x86_64-vmlinuz
+           append console=tty0 console=ttyS0 initrd=http://192.168.50.254:8080/openshift4/ipi/agent.x86_64-initrd.img coreos.live.rootfs_url=http://192.168.50.254:8080/openshift4/ipi/agent.x86_64-rootfs.img rw ignition.firstboot ignition.platform.id=metal
+
+    - name: Ensure files with MAC addresses are symlinks to pxeboot-ipi.cfg
+      become: yes
+      ansible.builtin.file:
+        src: pxeboot-ipi.cfg
+        dest: "/var/lib/tftpboot/pxelinux.cfg/{{ hostvars[item]['ansible_facts']['default_ipv4']['macaddress'] | regex_replace('^', '01-') | regex_replace(':', '-') }}"
+        owner: root
+        group: root
+        state: link
+        force: yes
+      loop: "{{ install_hosts }}"
+
+    - name: Ensure forward DNS records are there.
+      become: yes
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.db
+        regexp: "{{ item.regex }}"
+        line: "{{ item.line }}"
+        insertafter: "{{ item.after | default(omit) }}"
+        insertbefore: "{{ item.before | default(omit) }}"
+      loop:
+        - regex: '^master01\..* '
+          line: "master01.ipi IN A 192.168.50.10"
+          after: '^master01 '
+        - regex: '^master02\..* '
+          line: "master02.ipi IN A 192.168.50.11"
+          after: '^master02 '
+        - regex: '^master03\..* '
+          line: "master03.ipi IN A 192.168.50.12"
+          after: '^master03 '
+        - regex: '^worker01\..* '
+          line: "worker01.ipi IN A 192.168.50.13"
+          after: '^worker01 '
+        - regex: '^worker02\..* '
+          line: "worker02.ipi IN A 192.168.50.14"
+          after: '^worker02 '
+        - regex: '^api\..* '
+          line: "api.ipi IN A 192.168.50.8"
+          before: '^master01\.ipi '
+        - regex: '^api-int\.ipi '
+          line: "api-int.ipi IN A 192.168.50.8"
+          after: '^api\.ipi '
+        - regex: '^\*\.apps\.ipi '
+          line: "*.apps.ipi IN A 192.168.50.9"
+          after: '^api-int\.ipi '
+      register: dnsfw_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the forward zone if changed.
+      block:
+
+        - name: Load the zone file.
+          become: yes
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.db
+          register: zonefile_fw
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_fw_serial: "{{ (zonefile_fw.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          become: yes
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.db
+            regexp: "; serial"
+            line: "                {{ new_fw_serial }} ; serial"
+
+      when: dnsfw_fix.changed
+
+    - name: Ensure reverse DNS records are there.
+      become: yes
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.reverse.db
+        regexp: '^{{ item.addr }}\s+IN\s+PTR'
+        line: "{{ item.addr }}  IN PTR {{ item.host }}"
+        insertbefore: "^40  IN PTR idm"
+      loop:
+        - addr: 8
+          host: apps.ipi.ocp4.example.com.
+        - addr: 9
+          host: api.ipi.ocp4.example.com.
+        - addr: 10
+          host: master01.ipi.ocp4.example.com.
+        - addr: 11
+          host: master02.ipi.ocp4.example.com.
+        - addr: 12
+          host: master03.ipi.ocp4.example.com.
+        - addr: 13
+          host: worker01.ipi.ocp4.example.com.
+        - addr: 14
+          host: worker02.ipi.ocp4.example.com.
+      register: dnsre_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the reverse zone if changed.
+      block:
+
+        - name: Load the zone file.
+          become: yes
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.reverse.db
+          register: zonefile_re
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_re_serial: "{{ (zonefile_re.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          become: yes
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.reverse.db
+            regexp: "; serial"
+            line: "                {{ new_re_serial }} ; serial"
+
+      when: dnsre_fix.changed
+
+  handlers:
+    - name: restart dhcpd
+      become: yes
+      ansible.builtin.systemd_service:
+        name: dhcpd
+        state: restarted
+
+    - name: reload dns
+      become: yes
+      ansible.builtin.systemd_service:
+        name: named
+        state: reloaded
+
 ## TODO: wipe the filesystems of all related machines (or warn that a reset is needed if unreachable)
 ...

@@ -9,7 +9,11 @@ bootstrapInPlace:
 compute:
   - hyperthreading: Enabled
     name: worker
+{% if install_type == 'ipi' %}
+    replicas: 2
+{% else %}
     replicas: 0
+{% endif %}
 controlPlane:
   hyperthreading: Enabled
   name: master
@@ -28,13 +32,19 @@ networking:
 {% if install_type == 'agent' %}
     - cidr: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}/32
 {% else %}
-    - cidr: {{ (hostvars[install_host]['ansible_facts']['default_ipv4']['address'] + '/24') | ansible.utils.ipaddr('net') }}
+    - cidr: {{ (hostvars[install_host]['ansible_facts']['default_ipv4']['address'] + '/' + hostvars[install_host]['ansible_facts']['default_ipv4']['netmask']) | ansible.utils.ipaddr('network/prefix') }}
 {% endif %}
 {% endif %}
   serviceNetwork:
     - 172.30.0.0/16
 platform:
+{% if install_type == 'ipi' %}
+  baremetal:
+    apiVIP: 192.168.50.8
+    ingressVIP: 192.168.50.9
+{% else %}
   none: {}
+{% endif %}
 fips: false
 pullSecret: '{{ pull_secret | ansible.builtin.to_json }}'
 sshKey: '{{ public_key }}'

@@ -1,12 +1,13 @@
 apiVersion: v1alpha1
 kind: AgentConfig
 metadata:
-  name: agent-cluster
+  name: {{ install_type }}-cluster
 rendezvousIP: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}
 additionalNTPSources:
   - 192.168.50.254
 hosts:
   - hostname: {{ hostvars[install_host]['inventory_hostname_short'] }}
+    role: master
     rootDeviceHints:
       deviceName: /dev/sda
     interfaces:
@@ -34,3 +35,36 @@ hosts:
             next-hop-address: 127.0.0.1
             next-hop-interface: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['interface'] }}
             table-id: 254
+{% if install_type == 'ipi' %}
+{% for node in other_hosts %}
+  - hostname: {{ hostvars[node.name]['inventory_hostname_short'] }}
+    role: {{ node.role }}
+    rootDeviceHints:
+      deviceName: /dev/sda
+    interfaces:
+      - name: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['interface'] }}
+        macAddress: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['macaddress'] }}
+    networkConfig:
+      interfaces:
+        - name: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['interface'] }}
+          type: ethernet
+          state: up
+          mac-address: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['macaddress'] }}
+          ipv4:
+            enabled: true
+            address:
+              - ip: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['address'] }}
+                prefix-length: 24
+            dhcp: false
+      dns-resolver:
+        config:
+          server:
+            - 192.168.50.254
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 127.0.0.1
+            next-hop-interface: {{ hostvars[node.name]['ansible_facts']['default_ipv4']['interface'] }}
+            table-id: 254
+{% endfor %}
+{% endif %}
