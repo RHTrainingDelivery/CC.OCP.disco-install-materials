@@ -259,17 +259,11 @@
              - name: registry.redhat.io/ubi9/ubi:latest
              - name: registry.redhat.io/ubi9/toolbox:latest
 
-    # NOTE: this will most probably fail the first time.
+    # NOTE: this will most probably fail the first time, so that's why there's a retry.
     - name: Kick off "oc mirror".
       ansible.builtin.command:
         cmd: oc mirror --v2 -c {{ ansible_facts['user_dir'] }}/image-set-config.yaml --workspace file://{{ ansible_facts['user_dir'] }}/mirror/ docker://registry.ocp4.example.com
       register: mirror_output
-
-    - name: Show what happened on stdout.
-      ansible.builtin.debug:
-        var: mirror_output.stdout_lines
-
-    - name: Show what happened on stderr.
-      ansible.builtin.debug:
-        var: mirror_output.stderr_lines
+      until: mirror_output.rc == 0
+      retries: 5
 ...
