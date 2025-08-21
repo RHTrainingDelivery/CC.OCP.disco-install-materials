@@ -209,6 +209,104 @@
         chdir: "{{ ansible_facts['user_dir'] }}/agent"
       when: not agent_iso.stat.exists
 
+- name: Fix DNS server data.
+  hosts: utility.lab.example.com
+  gather_subset: min
+  become: yes
+  tasks:
+    - name: Ensure forward DNS records are there.
+      become: yes
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.db
+        regexp: "{{ item.regex }}"
+        line: "{{ item.line }}"
+        insertafter: "{{ item.after | default(omit) }}"
+        insertbefore: "{{ item.before | default(omit) }}"
+      loop:
+        - regex: '^master02\.agent '
+          line: "master02.agent IN A 192.168.50.11"
+          after: '^master02 '
+        - regex: '^api\.agent '
+          line: "api.agent IN A 192.168.50.8"
+          before: '^master02\.agent '
+        - regex: '^api-int\.agent '
+          line: "api-int.agent IN A 192.168.50.8"
+          after: '^api\.agent '
+        - regex: '^\*\.apps\.agent '
+          line: "*.apps.agent IN A 192.168.50.9"
+          after: '^api-int\.agent '
+      register: dnsfw_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the forward zone if changed.
+      block:
+
+        - name: Load the zone file.
+          become: yes
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.db
+          register: zonefile_fw
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_fw_serial: "{{ (zonefile_fw.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          become: yes
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.db
+            regexp: "; serial"
+            line: "                {{ new_fw_serial }} ; serial"
+
+      when: dnsfw_fix.changed
+
+    - name: Ensure reverse DNS records are there.
+      become: yes
+      ansible.builtin.lineinfile:
+        path: /var/named/ocp4.example.com.reverse.db
+        regexp: '^11\s+IN\s+PTR'
+        line: "11  IN PTR master02.agent.ocp4.example.com."
+        insertbefore: "^40  IN PTR idm"
+      register: dnsre_fix
+      notify:
+        - reload dns
+
+    - name: Increase the serial number of the reverse zone if changed.
+      block:
+
+        - name: Load the zone file.
+          become: yes
+          ansible.builtin.slurp:
+            src: /var/named/ocp4.example.com.reverse.db
+          register: zonefile_re
+
+        - name: Read the serial number from the zone file and increase it by one.
+          ansible.builtin.set_fact:
+            new_re_serial: "{{ (zonefile_re.content | ansible.builtin.b64decode() | ansible.builtin.regex_search('^.*; serial', ignorecase=True, multiline=True) | ansible.builtin.regex_replace('; serial.*$', '') | trim | int) + 1 }}"
+
+        - name: Insert the new serial number instead of the old one.
+          become: yes
+          ansible.builtin.lineinfile:
+            path: /var/named/ocp4.example.com.reverse.db
+            regexp: "; serial"
+            line: "                {{ new_re_serial }} ; serial"
+
+      when: dnsre_fix.changed
+
+  handlers:
+    - name: restart dhcpd
+      become: yes
+      ansible.builtin.systemd_service:
+        name: dhcpd
+        state: restarted
+
+    - name: reload dns
+      become: yes
+      ansible.builtin.systemd_service:
+        name: named
+        state: reloaded
+
 - name: Copy the ISO file to target machine and write it to /dev/sdb
   hosts: master02.ocp4.example.com
   gather_subset: min
