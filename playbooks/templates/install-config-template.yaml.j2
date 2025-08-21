@@ -13,15 +13,23 @@ compute:
 controlPlane:
   hyperthreading: Enabled
   name: master
+{% if install_type == 'ipi' %}
+  replicas: 3
+{% else %}
   replicas: 1
+{% endif %}
 networking:
   clusterNetwork:
     - cidr: 10.128.0.0/14
       hostPrefix: 23
   networkType: OVNKubernetes
-{% if install_type == 'agent' %}
+{% if install_type in ['agent','ipi'] %}
   machineNetwork:
+{% if install_type == 'agent' %}
     - cidr: {{ hostvars[install_host]['ansible_facts']['default_ipv4']['address'] }}/32
+{% else %}
+    - cidr: {{ (hostvars[install_host]['ansible_facts']['default_ipv4']['address'] + '/24') | ansible.utils.ipaddr('net') }}
+{% endif %}
 {% endif %}
   serviceNetwork:
     - 172.30.0.0/16

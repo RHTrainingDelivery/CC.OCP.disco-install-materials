@@ -43,4 +43,169 @@
             - coreos-installer prerequisites
           Exiting.
         success_msg: "OK, dependencies exist."
+
+    - name: Check whether someone fiddled with installation before.
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/ipi/.openshift_install.log"
+      register: install_log
+
+    - name: Warn if installation log was found.
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: Found .openshift_install.log in the cluster working directory. This usually
+                   means there were previous attempts of creating installation artifacts.
+          
+                   If you want to recreate the cluster working directory from scratch, run this
+                   playbook with the variable "recreate_cluster_dir" set to any value like this:
+          
+                    ansible-playbook -e recreate_cluster_dir=yes ./65-agent-ipi-multinode.yml
+          
+                   Continuing in 5 seconds unless you interrupt execution.
+        seconds: 5
+      when:
+        - install_log.stat.exists
+        - recreate_cluster_dir is not defined
+
+    - name: Load the dependencies as facts.
+      ansible.builtin.set_fact:
+        pull_secret: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/install-pull-secret') }}"
+        public_key: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/.ssh/openshift.pub') }}"
+        lab_ca_cert: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/ca/ca-cert.pem') }}"
+        content_sources: "{{ lookup('ansible.builtin.file', ansible_facts['user_dir'] + '/mirror/working-dir/cluster-resources/idms-oc-mirror.yaml')
+                              | ansible.builtin.from_yaml_all }}"
+
+    - name: Set the fact determining installation type (required for templating).
+      ansible.builtin.set_fact:
+        install_type: ipi
+        install_host: master03.ocp4.example.com
+
+    - name: Collect facts from the target machine (must be reachable for that).
+      delegate_to: "{{ item }}"
+      delegate_facts: yes
+      ansible.builtin.setup:
+        gather_subset: min,interfaces
+      loop: "{{ install_hosts }}"
+
+    - name: Ensure install-config is there.
+      ansible.builtin.template:
+        src: templates/install-config-template.yaml.j2
+        dest: "{{ ansible_facts['user_dir'] }}/install-config-ipi.yaml"
+        mode: 0644
+        owner: student
+        group: student
+      register: updated_install_config
+
+#    - name: Ensure agent-config is there.
+#      ansible.builtin.template:
+#        src: templates/agent-config-template.yaml.j2
+#        dest: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
+#        mode: 0644
+#        owner: student
+#        group: student
+#      register: updated_agent_config
+#
+#    - name: Remove the installation directory if so required.
+#      ansible.builtin.file:
+#        path: "{{ ansible_facts['user_dir'] }}/agent"
+#        state: absent
+#      when:
+#        - recreate_cluster_dir is defined
+#        - recreate_cluster_dir
+#
+#    - name: Ensure the presence of installation directory.
+#      ansible.builtin.file:
+#        path: "{{ ansible_facts['user_dir'] }}/agent"
+#        state: directory
+#        mode: 0755
+#
+#    - name: Also, ensure that the right install-config.yaml file is in there.
+#      ansible.builtin.copy:
+#        src: "{{ ansible_facts['user_dir'] }}/install-config-agent.yaml"
+#        remote_src: yes
+#        dest: "{{ ansible_facts['user_dir'] }}/agent/install-config.yaml"
+#        mode: 0644
+#      register: published_install_config
+#      when:
+#        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
+#
+#    - name: The same, but for agent-config.yaml.
+#      ansible.builtin.copy:
+#        src: "{{ ansible_facts['user_dir'] }}/agent-config-sno.yaml"
+#        remote_src: yes
+#        dest: "{{ ansible_facts['user_dir'] }}/agent/agent-config.yaml"
+#        mode: 0644
+#      register: published_agent_config
+#      when:
+#        - (not install_log.stat.exists) or (recreate_cluster_dir is defined) or updated_install_config.changed or updated_agent_config.changed
+#
+#    - name: This block will only execute if install-config or agent-config files were published.
+#      block:
+#
+#        - name: Ensure the presence of customization directory.
+#          ansible.builtin.file:
+#            path: "{{ ansible_facts['user_dir'] }}/agent/openshift"
+#            state: directory
+#            mode: 0755
+#
+#        - name: Render chrony customizations in home directory.
+#          ansible.builtin.template:
+#            src: templates/chrony-customization.bu.j2
+#            dest: "{{ ansible_facts['user_dir'] }}/chrony-{{ item }}.bu"
+#            mode: 0644
+#            owner: student
+#            group: student
+#          loop:
+#            - master
+#            - worker
+#
+#        - name: Publish chrony customizations in manifests directory.
+#          ansible.builtin.command:
+#            cmd: butane ./chrony-{{ item }}.bu -o ./agent/openshift/99_chrony_{{ item }}.yaml
+#            chdir: "{{ ansible_facts['user_dir'] }}"
+#            creates: agent/openshift/99_chrony_{{ item }}.yaml
+#          loop:
+#            - master
+#            - worker
+#
+#        - name: Ensure the agent image cache directory exists.
+#          ansible.builtin.file:
+#            path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache"
+#            state: directory
+#            mode: 0755
+#
+#        - name: Ensure that the agent ISO and all other artifacts are gone if anything was updated.
+#          ansible.builtin.file:
+#            path: "{{ ansible_facts['user_dir'] }}/agent/{{ item }}"
+#            state: absent
+#          loop:
+#            - agent.x86_64.iso
+#            - auth
+#            - rendezvousIP
+#            - .openshift_install.log
+#            - .openshift_install_state.json
+#
+#      when: published_install_config.changed or published_agent_config.changed
+#
+#    - name: Check whether the ISO is there.
+#      ansible.builtin.stat:
+#        path: "{{ ansible_facts['user_dir'] }}/agent/agent.x86_64.iso"
+#        get_attributes: no
+#        get_checksum: no
+#        get_mime: no
+#      register: agent_iso
+#
+#    - name: Ensure that CoreOS ISO is a link to the downloaded one in Downloads.
+#      ansible.builtin.file:
+#        path: "{{ ansible_facts['user_dir'] }}/.cache/agent/image_cache/coreos-x86_64.iso"
+#        state: hard
+#        src: "{{ ansible_facts['user_dir'] }}/Downloads/rhcos-418.94.202501221327-0-live.x86_64.iso"
+#
+#    - name: Create agent installation ISO.
+#      ansible.builtin.command:
+#        cmd: openshift-install-fips agent create image
+#        chdir: "{{ ansible_facts['user_dir'] }}/agent"
+#      when: not agent_iso.stat.exists
+#
+## TODO: copy the installation files to utility and fix the boot config files.
+## TODO: wipe the filesystems of all related machines (or warn that a reset is needed if unreachable)
 ...
