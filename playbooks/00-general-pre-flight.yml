@@ -9,6 +9,8 @@
       ansible.builtin.yum:
         name:
           - ansible-collection-ansible-posix
+          - python3-netaddr
+          - ansible-collection-ansible-utils
           - ansible-collection-community-crypto
           - ansible-collection-community-general
           - ansible-collection-containers-podman
